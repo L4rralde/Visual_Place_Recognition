@@ -3,6 +3,7 @@ from .salad import SALAD
 from .dinov2 import DINOv2
 from .dinov3 import DINOv3
 
+#Function from dinov2+salad repo
 
 def get_backbone(
         backbone_arch='dinov2',
@@ -11,7 +12,7 @@ def get_backbone(
     """Helper function that returns the backbone given its name
 
     Args:
-        backbone_arch (str, optional): . Defaults to 'resnet50'.
+        backbone_arch (str, optional): . Defaults to 'dinov2'.
         backbone_config (dict, optional): this must contain all the arguments needed to instantiate the backbone class. Defaults to {}.
 
     Returns:
