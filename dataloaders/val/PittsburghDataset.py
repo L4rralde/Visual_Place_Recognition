@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import numpy as np
 from PIL import Image
@@ -8,8 +9,11 @@ from torch.utils.data import Dataset
 # the folders named ref and query should reside in DATASET_ROOT path
 # I hardcoded the image names and ground truth for faster evaluation
 # performance is exactly the same as if you use VPR-Bench.
-DATASET_ROOT = '../data/Pittsburgh/'
-GT_ROOT = './datasets/' # BECAREFUL, this is the ground truth that comes with GSV-Cities
+
+if not 'DINO3_SALAD_ROOT' in os.environ:
+    raise RuntimeError("Please, first set $DINO3_SALAD_ROOT environment variable")
+DATASET_ROOT = os.path.join(os.environ['DINO3_SALAD_ROOT'], 'training_datasets', 'pittsburgh')
+GT_ROOT = os.path.join(os.environ['DINO3_SALAD_ROOT'], 'datasets') # BECAREFUL, this is the ground truth that comes with GSV-Cities
 
 path_obj = Path(DATASET_ROOT)
 if not path_obj.exists():

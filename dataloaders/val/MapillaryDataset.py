@@ -1,10 +1,16 @@
+import os
+
 from torch.utils.data import Dataset
 
 import numpy as np
 from PIL import Image
 
-DATASET_ROOT = '../data/mapillary/'
-GT_ROOT = './datasets/' # BECAREFUL, this is the ground truth that comes with GSV-Cities
+
+if not 'DINO3_SALAD_ROOT' in os.environ:
+    raise RuntimeError("Please, first set $DINO3_SALAD_ROOT environment variable")
+DATASET_ROOT = os.path.join(os.environ['DINO3_SALAD_ROOT'], 'training_datasets', 'mapillary')
+GT_ROOT = os.path.join(os.environ['DINO3_SALAD_ROOT'], 'datasets') # BECAREFUL, this is the ground truth that comes with GSV-Cities
+
 
 class MSLS(Dataset):
     def __init__(self, input_transform = None):
