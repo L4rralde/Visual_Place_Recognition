@@ -1,0 +1,12 @@
+backbone_arch: "dinov2_vitb14"
+
+input_config:
+  img_size: [224, 224]
+  mean_std: "IMAGENET_MEAN_STD"
+
+backbone_config:
+  num_trainable_blocks: 4
+  return_token: true
+  norm_layer: true
+
+max_epochs: 10

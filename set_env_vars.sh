@@ -1,0 +1,1 @@
+export DINO3_SALAD_ROOT=$PWD
