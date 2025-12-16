@@ -5,8 +5,7 @@ import pytorch_lightning as pl
 
 from vpr_model import VPRModel
 from dataloaders.GSVCitiesDataloader import GSVCitiesDataModule, IMAGENET_MEAN_STD
-from models.backbones.dinov3 import DINOV3_MEAN_STD
-from autoconfig import load_config
+from utils.yaml_config import load_config
 
 
 torch.set_float32_matmul_precision('high')
@@ -32,7 +31,7 @@ if __name__ == '__main__':
 
     img_size = config['input_config']['img_size']
 
-    mean_std = DINOV3_MEAN_STD if config['input_config']['mean_std'] == 'DINOV3_MEAN_STD' else IMAGENET_MEAN_STD
+    mean_std = IMAGENET_MEAN_STD
 
     backbone_arch = config['backbone_arch']
     backbone_config = config['backbone_config']

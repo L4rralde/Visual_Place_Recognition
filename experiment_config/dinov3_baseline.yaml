@@ -2,7 +2,6 @@ backbone_arch: "dinov3_vitb16"
 
 input_config:
   img_size: [256, 256]
-  mean_std: "IMAGENET_MEAN_STD"
 
 backbone_config:
   num_trainable_blocks: 2
