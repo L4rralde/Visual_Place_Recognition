@@ -30,13 +30,13 @@ class PittsburghDataset(Dataset):
         self.input_transform = input_transform
 
         # reference images names
-        self.dbImages = np.load(GT_ROOT+f'Pittsburgh/{which_ds}_dbImages.npy')
+        self.dbImages = np.load(os.path.join(GT_ROOT, f'Pittsburgh/{which_ds}_dbImages.npy'))
         
         # query images names
-        self.qImages = np.load(GT_ROOT+f'Pittsburgh/{which_ds}_qImages.npy')
+        self.qImages = np.load(os.path.join(GT_ROOT, f'Pittsburgh/{which_ds}_qImages.npy'))
         
         # ground truth
-        self.ground_truth = np.load(GT_ROOT+f'Pittsburgh/{which_ds}_gt.npy', allow_pickle=True)
+        self.ground_truth = np.load(os.path.join(GT_ROOT, f'Pittsburgh/{which_ds}_gt.npy'), allow_pickle=True)
         
         # reference images then query images
         self.images = np.concatenate((self.dbImages, self.qImages))
@@ -46,7 +46,7 @@ class PittsburghDataset(Dataset):
         
     
     def __getitem__(self, index):
-        img = Image.open(DATASET_ROOT+self.images[index])
+        img = Image.open(os.path.join(DATASET_ROOT, self.images[index]))
 
         if self.input_transform:
             img = self.input_transform(img)

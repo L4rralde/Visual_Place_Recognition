@@ -18,10 +18,10 @@ class MSLS(Dataset):
 
         self.input_transform = input_transform
 
-        self.dbImages = np.load(GT_ROOT+'msls_val/msls_val_dbImages.npy')
-        self.qIdx = np.load(GT_ROOT+'msls_val/msls_val_qIdx.npy')
-        self.qImages = np.load(GT_ROOT+'msls_val/msls_val_qImages.npy')
-        self.ground_truth = np.load(GT_ROOT+'msls_val/msls_val_pIdx.npy', allow_pickle=True)
+        self.dbImages = np.load(os.path.join(GT_ROOT, 'msls_val/msls_val_dbImages.npy'))
+        self.qIdx = np.load(os.path.join(GT_ROOT, 'msls_val/msls_val_qIdx.npy'))
+        self.qImages = np.load(os.path.join(GT_ROOT, 'msls_val/msls_val_qImages.npy'))
+        self.ground_truth = np.load(os.path.join(GT_ROOT, 'msls_val/msls_val_pIdx.npy'), allow_pickle=True)
         
         # reference images then query images
         self.images = np.concatenate((self.dbImages, self.qImages[self.qIdx]))
@@ -29,7 +29,7 @@ class MSLS(Dataset):
         self.num_queries = len(self.qImages[self.qIdx])
     
     def __getitem__(self, index):
-        img = Image.open(DATASET_ROOT + self.images[index])
+        img = Image.open(os.path.join(DATASET_ROOT, self.images[index]))
 
         if self.input_transform:
             img = self.input_transform(img)
