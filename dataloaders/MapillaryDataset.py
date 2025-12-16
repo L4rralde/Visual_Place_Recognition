@@ -47,7 +47,7 @@ class MSLS(Dataset):
         self.num_references = len(self.dbImages)
     
     def __getitem__(self, index):
-        img = Image.open(DATASET_ROOT+self.images[index])
+        img = Image.open(os.path.join(DATASET_ROOT, self.images[index]))
 
         if self.input_transform:
             img = self.input_transform(img)
