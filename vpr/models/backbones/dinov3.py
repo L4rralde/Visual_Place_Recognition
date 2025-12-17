@@ -1,15 +1,19 @@
-from os import PathLike
+import os
 
 import torch
 import torch.nn as nn
+
+from .dinov3_urls import _URLS
+
+
+_model_names = _URLS.keys()
 
 
 class DINOv3(nn.Module):
     def __init__(
             self,
             model_name: str,
-            url: str,
-            dinov3_repo_path: PathLike, 
+            dinov3_repo_path: os.PathLike|None = None,
             num_trainable_blocks: int = 2,
             norm_layer: bool = False,
             return_token: bool = False,
@@ -18,6 +22,13 @@ class DINOv3(nn.Module):
     ) -> None:
         super().__init__()
 
+        if not model_name in _model_names:
+            raise ValueError(f"Unknown model name. Try one of the following: {_model_names}")
+        url = _URLS[model_name]
+
+        if dinov3_repo_path is None:
+            dinov3_repo_path = os.path.join(os.environ['VPR_GIT_ROOT'], 'submodules', 'dinov3')
+
         self.model_name = model_name
         self.model = torch.hub.load(
             dinov3_repo_path,
@@ -25,6 +36,7 @@ class DINOv3(nn.Module):
             source = 'local',
             weights = url
         )
+
         self.num_channels = self.model.num_features
         self.num_trainable_blocks = num_trainable_blocks
         self.num_blocks = len(self.model.blocks)
