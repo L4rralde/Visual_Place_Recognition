@@ -13,10 +13,10 @@ import torch.utils.data as data
 from PIL import Image, UnidentifiedImageError
 from sklearn.neighbors import NearestNeighbors
 
-if not 'DINO3_SALAD_ROOT' in os.environ:
-    raise RuntimeError("Please, first set $DINO3_SALAD_ROOT environment variable")
+if not 'VPR_GIT_ROOT' in os.environ:
+    raise RuntimeError("Please, first set $VPR_GIT_ROOT environment variable")
 
-root_dir = os.path.join(os.environ['DINO3_SALAD_ROOT'], 'training_datasets', 'pittsburgh')
+root_dir = os.path.join(os.environ['VPR_GIT_ROOT'], 'training_datasets', 'pittsburgh')
 
 if not exists(root_dir):
     raise FileNotFoundError(
