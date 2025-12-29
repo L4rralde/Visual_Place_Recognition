@@ -26,11 +26,11 @@ class VPRModel(pl.LightningModule):
 
     def __init__(self,
         #---- Backbone
-        backbone_arch='resnet50',
+        backbone_arch='Dinov2',
         backbone_config={},
         
         #---- Aggregator
-        agg_arch='ConvAP',
+        agg_arch='SALAD',
         agg_config={},
         
         #---- Train hyperparameters
