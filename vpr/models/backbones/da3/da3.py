@@ -30,7 +30,7 @@ class DepthAnything3Backbone(nn.Module):
         process_res_method: str = "upper_bound_resize",
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
-    ) -> tuple:
+    ) -> Dict[str, torch.Tensor]:
         #FUTURE. What role do the extrinsics and intrinsics play before alternate attention blocks?
         # Answer: Preprocess images, later, only if BOTH are passed, cls tokens are replaced by a 
         #           cam_token built upon intrinsics and extrinsics. Otherwise, class tokens are replaced
@@ -192,9 +192,32 @@ class DepthAnything3Backbone(nn.Module):
     #We better use 
 
 
+def intermediate_features(
+    model: DepthAnything3,
+    image: list[np.ndarray | Image.Image | str],
+    export_dir: str,
+    export_feat_layers: Sequence[int] | None = [8], #Is 8 the last layer before alternate attention?
+    extrinsics: np.ndarray | None = None,
+    intrinsics: np.ndarray | None = None,
+    ref_view_strategy: str = "saddle_balanced",
+    process_res: int = 504,
+    process_res_method: str = "upper_bound_resize",
+    **kwargs
+) -> Prediction:
+    model.inference(
+        image, extrinsics, intrinsics,
+        export_dir=export_dir,
+        ref_view_strategy=ref_view_strategy,
+        process_res=process_res,
+        process_res_method=process_res_method,
+        export_feat_layers=export_feat_layers,
+    )
+
+
 #TODO:
 # [ ] Modify code to not drop cls token from auxiliar outputs.
 # [ ] Write code (with out modifying depth anything source code) which takes depth anything outputs before alternate attention blocks (including cls tokens)
 # [ ] Compare if results are the same. (one to one).
 # [ ] Train SALAD with ViT-Base.
 # [ ] Adapt code to use other ViT confs.
+
