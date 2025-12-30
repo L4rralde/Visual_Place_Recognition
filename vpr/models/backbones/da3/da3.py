@@ -25,9 +25,7 @@ class DepthAnything3Backbone(nn.Module):
         image: list[np.ndarray | Image.Image | str],
         extrinsics: np.ndarray | None = None,
         intrinsics: np.ndarray | None = None,
-        ref_view_strategy: str = "saddle_balanced",
         process_res: int = 504,
-        process_res_method: str = "upper_bound_resize",
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -39,7 +37,7 @@ class DepthAnything3Backbone(nn.Module):
         #Images are to be reshaped. Intrinsics need to be modified. Intrinsics shouldn't modify images...
         #   Extrinsics don't change at all, right?
         imgs_cpu, extrinsics, intrinsics = self.da3._preprocess_inputs(
-            image, extrinsics, intrinsics, process_res, process_res_method
+            image, extrinsics, intrinsics, process_res
         )
 
         # Prepare tensors for model
@@ -117,10 +115,9 @@ class DepthAnything3Backbone(nn.Module):
                 # self.bakcbone.pretrained(dino)._get_intermediate_layers_not_chunked def
                 #Let x be a batch of sequences. x.shape = (batch_size, sequence len, channels, height, width)
                 dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
-                outputs, aux_outputs = dino._get_intermediate_layers_not_chunked(
+                outputs, aux_outputs = dino._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
                     imgs, self.from_block, feat_layers,
                     cam_token=cam_token,
-                    ref_view_strategy=ref_view_strategy
                 )
                 camera_tokens = [out[0] for out in outputs]
                 if outputs[0][1].shape[-1] == dino.embed_dim:
@@ -173,13 +170,13 @@ class DepthAnything3Backbone(nn.Module):
                 output.aux = da3_model._extract_auxiliary_features(aux_feats, feat_layers, H, W)
                 output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
 
-                return output
+        return output
     
     def _extract_cls_token(self, cls_token: list[torch.Tensor], feat_layers: list[int]) -> Dict[str, torch.Tensor]:
         aux_cls = Dict()
         assert len(aux_cls) == len(feat_layers)
         for cls, feat_layer in zip(cls_token, feat_layers):
-            cls_reshaped = cls.reshape(cls.shape[0], cls.shape[1], -1)
+            cls_reshaped = cls.reshape(cls.shape[0], cls.shape[1], -1) #B, S, dim
             aux_cls[f"feat_layer_{feat_layer}"] = cls_reshaped
     
         return aux_cls
@@ -187,9 +184,72 @@ class DepthAnything3Backbone(nn.Module):
     def inference(self) -> Prediction:
         #FUTURE
         raise NotImplementedError()
-            
-    
-    #We better use 
+
+
+class DepthAnything3Dino(DepthAnything3Backbone):
+    def __init__(self, model_name: str = "da3-base", return_token: bool=False, **kwargs):
+        super().__init__(model_name, **kwargs)
+        self.return_token = return_token
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        feat_layer: int = 7, #8 - 1
+        extrinsics: torch.Tensor | None = None,
+        intrinsics: torch.Tensor | None = None,
+        process_res: int = 504,
+        **kwargs
+    ) -> Dict[str, torch.Tensor]:
+        dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
+        assert (dino.alt_start - 1) == feat_layer, "Double check what's the last layer before alternate attention"
+
+        S, C, H, W = x.shape #Here, the sequence len will play as Batch size.
+                                #However, images may come from different scenes.
+                                #Rendering alternate attention non-sense at all.
+                                #Since only SALAD will be trained, it might mather nothing after all.
+                                #But we want a model wich returns both features for SALAD and 3D predictions.
+                                #I must remove alternate attention after I check same features are dropped.
+                                #But for applications, I need a model which predicts all.
+
+        assert C == 3, "Number of channels mismatch"
+
+        image = [tensor.permute(1, 2, 0).numpy() for tensor in x]
+        assert len(image) == S, "Lenght mismatch"
+        assert image[0].shape[2] == 3, "image (np.ndarray) shape mismatch"
+
+        extrinsics = extrinsics.numpy()
+        intrinsics = intrinsics.numpy()
+        output = super().forward(
+            image, extrinsics, intrinsics, process_res,
+            export_feat_layers=[feat_layer], **kwargs
+        )
+
+        #PATCH_SIZE = 14 (same in DINOv2)
+        #Image resizing. Upper resize. Resize to 504.
+        #Image is resized such as the largest dimension is 504.
+        # Then, we make both dimensions divisible by the PATCH SIZE
+        # by converting dimensions to the nearest multiple of the batch size.
+        # This means that the processed dimensions depend on the input image.
+        # So, also, the number of patches is not fixed. SALAD requires a fixed number of tokens.
+        # However, SALAD works with a variable number of tokens, but a fixed number is required for comparison.
+        # A trade-off is required to compare backbones' performance.
+
+        #f is already detached.
+        f = output.aux[f"feat_layer_{feat_layer}"] #Shape = B, S, h_tokens, w_tokens, dim
+        B, S, h, w, dim = f.shape
+        #We expect B=1 or S = 1
+        assert B == 1 or S == 1, "Something wrong happened with features' shape"
+        f_reshaped = f.view(B*S, h, w, dim)
+
+        t = output.aux_cls[f"feat_layer_{feat_layer}"]
+        B, S, t_dim = t.shape
+        assert dim == t_dim, "Something wrong happened with tokens dim"
+        assert B == 1 or S == 1, "Something wrong happened with features' shape"
+        t_reshaped = t.view(B*S, dim)
+
+        if self.return_token:
+            return f_reshaped, t_reshaped
+        return f_reshaped
 
 
 def intermediate_features(
@@ -199,17 +259,12 @@ def intermediate_features(
     export_feat_layers: Sequence[int] | None = [8], #Is 8 the last layer before alternate attention?
     extrinsics: np.ndarray | None = None,
     intrinsics: np.ndarray | None = None,
-    ref_view_strategy: str = "saddle_balanced",
     process_res: int = 504,
-    process_res_method: str = "upper_bound_resize",
-    **kwargs
 ) -> Prediction:
     model.inference(
         image, extrinsics, intrinsics,
         export_dir=export_dir,
-        ref_view_strategy=ref_view_strategy,
         process_res=process_res,
-        process_res_method=process_res_method,
         export_feat_layers=export_feat_layers,
     )
 

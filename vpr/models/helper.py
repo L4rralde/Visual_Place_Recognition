@@ -1,5 +1,4 @@
 
-from .salad import SALAD
 from . import backbones
 
 #Function from dinov2+salad repo
@@ -21,5 +20,15 @@ def get_backbone(
         return backbones.DINOv2(model_name=backbone_arch, **backbone_config)
     elif 'dinov3' in backbone_arch.lower():
         return backbones.DINOv3(model_name=backbone_arch, **backbone_config)
+    elif 'da3' in backbone_arch.lower():
+        return backbones.DepthAnything3Dino(backbone_arch, **backbone_config)
     else:
         raise ValueError(f"Backbone {backbone_arch} not supported")
+
+
+DINO_EMBEDDING_DIMS = {
+    'small': 384,
+    'base': 768,
+    'large': 1024,
+    'giant': 1536
+}
