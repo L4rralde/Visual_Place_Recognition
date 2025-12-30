@@ -1,0 +1,9 @@
+backbone_arch: "da3-base"
+
+input_config:
+  img_size: [224, 224]
+
+backbone_config:
+  return_token: true
+
+max_epochs: 10
