@@ -85,7 +85,7 @@ class VPRModel(pl.LightningModule):
         # ----------------------------------
         # get the backbone and the aggregator
         self.backbone = helper.get_backbone(backbone_arch, backbone_config)
-        self.aggregator = SALAD(**agg_config)
+        self.aggregator = SALAD(num_channels=self.backbone.num_channels, **agg_config)
 
         # For validation in Lightning v2.0.0
         self.val_outputs = []

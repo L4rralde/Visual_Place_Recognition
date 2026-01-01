@@ -190,6 +190,12 @@ class DepthAnything3Dino(DepthAnything3Backbone):
     def __init__(self, model_name: str = "da3-base", return_token: bool=False, **kwargs):
         super().__init__(model_name, **kwargs)
         self.return_token = return_token
+        if 'num_trainable_blocks' in kwargs:
+            print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
+        if 'norm_layer' in kwargs:
+            print("norm_layer argument flag is not supported for da3. DA3 is used as is")
+        dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
+        self.num_channels = dino.num_features
 
     def forward(
         self,
