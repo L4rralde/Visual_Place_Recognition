@@ -1,5 +1,5 @@
 
-#Function from dinov2+salad repo
+#Function from dinov2+salad repo with modifications
 
 def get_backbone(
         backbone_arch='dinov2',
@@ -14,17 +14,24 @@ def get_backbone(
     Returns:
         nn.Module: the backbone as a nn.Model object
     """
+    freeze = backbone_config.pop('frozen', False)
+
     if 'dinov2' in backbone_arch.lower():
         from .backbones.dinov2 import DINOv2
-        return DINOv2(model_name=backbone_arch, **backbone_config)
+        backbone = DINOv2(model_name=backbone_arch, **backbone_config)
     elif 'dinov3' in backbone_arch.lower():
         from .backbones.dinov3 import DINOv3
-        return DINOv3(model_name=backbone_arch, **backbone_config)
+        backbone = DINOv3(model_name=backbone_arch, **backbone_config)
     elif 'da3' in backbone_arch.lower():
         from .backbones.da3 import DepthAnything3Dino
-        return DepthAnything3Dino(backbone_arch, **backbone_config)
+        backbone = DepthAnything3Dino(backbone_arch, **backbone_config)
     else:
         raise ValueError(f"Backbone {backbone_arch} not supported")
+
+    if freeze:
+        freeze_model(backbone)
+
+    return backbone
 
 
 DINO_EMBEDDING_DIMS = {
@@ -33,3 +40,9 @@ DINO_EMBEDDING_DIMS = {
     'large': 1024,
     'giant': 1536
 }
+
+
+def freeze_model(model) -> None:
+    for param in model.parameters():
+        param.requires_grad = False
+    model.eval()
