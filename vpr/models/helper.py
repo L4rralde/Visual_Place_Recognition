@@ -1,6 +1,4 @@
 
-from . import backbones
-
 #Function from dinov2+salad repo
 
 def get_backbone(
@@ -17,11 +15,14 @@ def get_backbone(
         nn.Module: the backbone as a nn.Model object
     """
     if 'dinov2' in backbone_arch.lower():
-        return backbones.DINOv2(model_name=backbone_arch, **backbone_config)
+        from .backbones.dinov2 import DINOv2
+        return DINOv2(model_name=backbone_arch, **backbone_config)
     elif 'dinov3' in backbone_arch.lower():
-        return backbones.DINOv3(model_name=backbone_arch, **backbone_config)
+        from .backbones.dinov3 import DINOv3
+        return DINOv3(model_name=backbone_arch, **backbone_config)
     elif 'da3' in backbone_arch.lower():
-        return backbones.DepthAnything3Dino(backbone_arch, **backbone_config)
+        from .backbones.da3 import DepthAnything3Dino
+        return DepthAnything3Dino(backbone_arch, **backbone_config)
     else:
         raise ValueError(f"Backbone {backbone_arch} not supported")
 
