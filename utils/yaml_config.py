@@ -20,10 +20,15 @@ def load_config(yaml_path):
             raise ValueError(f"Missing required backbone_config field in YAML: {field}")
 
     # Validate input_config subfields
-    backbone_config_fields = ['img_size']
-    for field in backbone_config_fields:
+    input_config_fields = ['img_size']
+    for field in input_config_fields:
         if field not in config['input_config']:
             raise ValueError(f"Missing required input_config field in YAML: {field}")
+
+    agg_config_fields = ['num_clusters', 'cluster_dim', 'token_dim']
+    for field in agg_config_fields:
+        if field not in config['agg_config']:
+            raise ValueError(f"Missing required agg_config field in YAML: {field}")
 
     return config
 

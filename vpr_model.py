@@ -26,11 +26,11 @@ class VPRModel(pl.LightningModule):
 
     def __init__(self,
         #---- Backbone
-        backbone_arch='resnet50',
+        backbone_arch='Dinov2',
         backbone_config={},
         
         #---- Aggregator
-        agg_arch='ConvAP',
+        agg_arch='SALAD',
         agg_config={},
         
         #---- Train hyperparameters
@@ -85,7 +85,7 @@ class VPRModel(pl.LightningModule):
         # ----------------------------------
         # get the backbone and the aggregator
         self.backbone = helper.get_backbone(backbone_arch, backbone_config)
-        self.aggregator = SALAD(**agg_config)
+        self.aggregator = SALAD(num_channels=self.backbone.num_channels, **agg_config)
 
         # For validation in Lightning v2.0.0
         self.val_outputs = []

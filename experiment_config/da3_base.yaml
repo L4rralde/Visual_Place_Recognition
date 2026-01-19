@@ -1,15 +1,13 @@
-backbone_arch: "dinov2_vitb14"
+backbone_arch: "da3-base"
 
 input_config:
   img_size: [224, 224]
 
 backbone_config:
-  num_trainable_blocks: 4
   return_token: true
-  norm_layer: true
 
 agg_config:
-  #num_channels from dinov2-base: 768
+  #num_channels from dinov3-base: 768 (Same as dinov2-Base)
   num_clusters: 64
   cluster_dim: 128
   token_dim: 256

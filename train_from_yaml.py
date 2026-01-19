@@ -35,6 +35,7 @@ if __name__ == '__main__':
 
     backbone_arch = config['backbone_arch']
     backbone_config = config['backbone_config']
+    agg_config = config['agg_config']
     max_epochs = config['max_epochs']
 
     datamodule = GSVCitiesDataModule(
@@ -55,12 +56,7 @@ if __name__ == '__main__':
         backbone_arch=backbone_arch,
         backbone_config=backbone_config,
         agg_arch='SALAD',
-        agg_config={
-            'num_channels': 768,
-            'num_clusters': 64,
-            'cluster_dim': 128,
-            'token_dim': 256,
-        },
+        agg_config=agg_config,
         lr = 6e-5,
         optimizer='adamw',
         weight_decay=9.5e-9, # 0.001 for sgd and 0 for adam,

@@ -4,3 +4,6 @@
 [submodule "submodules/vggt"]
 	path = submodules/vggt
 	url = https://github.com/facebookresearch/vggt.git
+[submodule "submodules/Depth-Anything-3"]
+	path = submodules/Depth-Anything-3
+	url = https://github.com/ByteDance-Seed/Depth-Anything-3.git

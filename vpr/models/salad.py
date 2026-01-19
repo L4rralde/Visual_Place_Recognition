@@ -76,7 +76,7 @@ class SALAD(nn.Module):
         dropout (float): The dropout rate.
     """
     def __init__(self,
-            num_channels=1536,
+            num_channels=1536, #DINO ViT embedding dim.
             num_clusters=64,
             cluster_dim=128,
             token_dim=256,
