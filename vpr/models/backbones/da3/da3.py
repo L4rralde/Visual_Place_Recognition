@@ -268,17 +268,20 @@ def intermediate_features(
     model: DepthAnything3,
     image: list[np.ndarray | Image.Image | str],
     export_dir: str,
-    export_feat_layers: Sequence[int] | None = [8], #Is 8 the last layer before alternate attention?
     extrinsics: np.ndarray | None = None,
     intrinsics: np.ndarray | None = None,
     process_res: int = 504,
 ) -> Prediction:
-    model.inference(
+    dino: DinoVisionTransformer = model.model.backbone.pretrained
+    export_feat_layers = [dino.alt_start - 1]
+    prediction = model.inference(
         image, extrinsics, intrinsics,
         export_dir=export_dir,
         process_res=process_res,
         export_feat_layers=export_feat_layers,
     )
+    
+    return prediction
 
 
 #TODO:
