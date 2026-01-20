@@ -14,9 +14,9 @@ from depth_anything_3.model.dinov2.vision_transformer import DinoVisionTransform
 from depth_anything_3.model.da3 import DepthAnything3Net
 
 
-@torch.inference_mode()
 class DepthAnything3Backbone(nn.Module):
     def __init__(self, model_name: str = "da3-base", from_block: int=1, **kwargs):
+        super().__init__()
         self.from_block = from_block
         self.da3 = DepthAnything3(model_name, **kwargs)
 
@@ -133,11 +133,11 @@ class DepthAnything3Backbone(nn.Module):
                 else:
                     raise ValueError(f"Invalid output shape: {outputs[0][1].shape}")
                 aux_outputs = [dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
-                outputs = [out[..., 1 + self.num_register_tokens :, :] for out in outputs] #Taking feat tokens only
+                outputs = [out[..., 1 + dino.num_register_tokens :, :] for out in outputs] #Taking feat tokens only
                 
                 #Extra line of code
                 cls_outputs = [out[..., 0, :] for out in aux_outputs]
-                aux_outputs = [out[..., 1 + self.num_register_tokens :, :] for out in aux_outputs]
+                aux_outputs = [out[..., 1 + dino.num_register_tokens :, :] for out in aux_outputs]
 
                 feats = tuple(zip(outputs, camera_tokens))
                 aux_feats = aux_outputs
@@ -174,7 +174,7 @@ class DepthAnything3Backbone(nn.Module):
     
     def _extract_cls_token(self, cls_token: list[torch.Tensor], feat_layers: list[int]) -> Dict[str, torch.Tensor]:
         aux_cls = Dict()
-        assert len(aux_cls) == len(feat_layers)
+        assert len(cls_token) == len(feat_layers), "Expected a set of cls tokens per layer to extract"
         for cls, feat_layer in zip(cls_token, feat_layers):
             cls_reshaped = cls.reshape(cls.shape[0], cls.shape[1], -1) #B, S, dim
             aux_cls[f"feat_layer_{feat_layer}"] = cls_reshaped
@@ -200,14 +200,15 @@ class DepthAnything3Dino(DepthAnything3Backbone):
     def forward(
         self,
         x: torch.Tensor,
-        feat_layer: int = 7, #8 - 1
+        feat_layer: int = -1,
         extrinsics: torch.Tensor | None = None,
         intrinsics: torch.Tensor | None = None,
-        process_res: int = 504,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
-        assert (dino.alt_start - 1) == feat_layer, "Double check what's the last layer before alternate attention"
+        if feat_layer == -1:
+            feat_layer = dino.alt_start -1
+        assert feat_layer < dino.alt_start, "Double check what's the last layer before alternate attention"
 
         S, C, H, W = x.shape #Here, the sequence len will play as Batch size.
                                 #However, images may come from different scenes.
@@ -218,13 +219,17 @@ class DepthAnything3Dino(DepthAnything3Backbone):
                                 #But for applications, I need a model which predicts all.
 
         assert C == 3, "Number of channels mismatch"
+        assert H == W, "Expected pre-processed square image"
+        process_res = H
 
-        image = [tensor.permute(1, 2, 0).numpy() for tensor in x]
+        image = [(255*tensor.permute(1, 2, 0)).cpu().numpy().astype(np.uint8) for tensor in x]
         assert len(image) == S, "Lenght mismatch"
         assert image[0].shape[2] == 3, "image (np.ndarray) shape mismatch"
 
-        extrinsics = extrinsics.numpy()
-        intrinsics = intrinsics.numpy()
+        if extrinsics is not None:
+            extrinsics = extrinsics.cpu().numpy()
+        if intrinsics is not None:
+            intrinsics = intrinsics.cpu().numpy()
         output = super().forward(
             image, extrinsics, intrinsics, process_res,
             export_feat_layers=[feat_layer], **kwargs
@@ -245,12 +250,13 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         B, S, h, w, dim = f.shape
         #We expect B=1 or S = 1
         assert B == 1 or S == 1, "Something wrong happened with features' shape"
-        f_reshaped = f.view(B*S, h, w, dim)
 
         t = output.aux_cls[f"feat_layer_{feat_layer}"]
         B, S, t_dim = t.shape
-        assert dim == t_dim, "Something wrong happened with tokens dim"
+        assert dim == t_dim == self.num_channels, "Something wrong happened with tokens dim"
         assert B == 1 or S == 1, "Something wrong happened with features' shape"
+
+        f_reshaped = f.view(B*S, h, w, dim).permute(0, 3, 1, 2)
         t_reshaped = t.view(B*S, dim)
 
         if self.return_token:
