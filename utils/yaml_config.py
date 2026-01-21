@@ -12,6 +12,8 @@ def load_config(yaml_path):
     for field in required_fields:
         if field not in config:
             raise ValueError(f"Missing required field in YAML: {field}")
+    
+    is_pure_dino = config['backbone_arch'].lower().startswith('dino')
 
     # Validate backbone_config subfields
     backbone_config_fields = ['return_token']
@@ -22,7 +24,7 @@ def load_config(yaml_path):
     else:
         backbone_config_fields.append('num_trainable_blocks')
 
-    if config['backbone_arch'].lower().startswith('dino'):
+    if is_pure_dino:
         backbone_config_fields.append('norm_layer')
 
     for field in backbone_config_fields:
@@ -31,6 +33,9 @@ def load_config(yaml_path):
 
     # Validate input_config subfields
     input_config_fields = ['img_size']
+    if not is_pure_dino:
+        input_config_fields.append('mean_std')
+
     for field in input_config_fields:
         if field not in config['input_config']:
             raise ValueError(f"Missing required input_config field in YAML: {field}")

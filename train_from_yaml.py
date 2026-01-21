@@ -30,8 +30,7 @@ if __name__ == '__main__':
     print(config)
 
     img_size = config['input_config']['img_size']
-
-    mean_std = IMAGENET_MEAN_STD
+    mean_std = config['input_config'].get('mean_std', IMAGENET_MEAN_STD)
 
     backbone_arch = config['backbone_arch']
     backbone_config = config['backbone_config']

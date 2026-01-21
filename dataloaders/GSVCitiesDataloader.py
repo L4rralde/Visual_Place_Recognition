@@ -14,6 +14,11 @@ IMAGENET_MEAN_STD = {'mean': [0.485, 0.456, 0.406],
 VIT_MEAN_STD = {'mean': [0.5, 0.5, 0.5], 
                 'std': [0.5, 0.5, 0.5]}
 
+IDENTITY_MEAN_STD = {
+    'mean': [0.0, 0.0, 0.0],
+    'std': [1.0, 1.0, 1.0]
+}
+
 TRAIN_CITIES = [
     'Bangkok',
     'BuenosAires',
@@ -82,7 +87,7 @@ class GSVCitiesDataModule(pl.LightningDataModule):
         self.valid_transform = T.Compose([
             T.Resize(image_size, interpolation=T.InterpolationMode.BILINEAR),
             T.ToTensor(),
-            T.Normalize(mean=self.mean_dataset, std=self.std_dataset)])
+            T.Normalize(mean=self.mean_dataset, std=self.std_dataset)]) #Is there normalization in 3D foundation models?
 
         self.train_loader_config = {
             'batch_size': self.batch_size,
