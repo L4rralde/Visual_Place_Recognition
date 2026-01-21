@@ -4,8 +4,9 @@ import torch
 import pytorch_lightning as pl
 
 from vpr_model import VPRModel
-from dataloaders.GSVCitiesDataloader import GSVCitiesDataModule, IMAGENET_MEAN_STD
+from dataloaders.GSVCitiesDataloader import GSVCitiesDataModule
 from utils.yaml_config import load_config
+from vpr.models import get_transforms
 
 
 torch.set_float32_matmul_precision('high')
@@ -29,22 +30,22 @@ if __name__ == '__main__':
     print("Config:")
     print(config)
 
-    img_size = config['input_config']['img_size']
-    mean_std = config['input_config'].get('mean_std', IMAGENET_MEAN_STD)
-
     backbone_arch = config['backbone_arch']
+    input_config = config['input_config']
     backbone_config = config['backbone_config']
     agg_config = config['agg_config']
     max_epochs = config['max_epochs']
 
+    train_transform, valid_transform = get_transforms(backbone_arch, input_config)
+
     datamodule = GSVCitiesDataModule(
+        train_transform,
+        valid_transform,
         batch_size=60,
         img_per_place=4,
         min_img_per_place=4,
         shuffle_all=False, # shuffle all images or keep shuffling in-city only
         random_sample_from_each_place=True,
-        image_size=img_size,
-        mean_std=mean_std,
         num_workers=10,
         show_data_stats=True,
         val_set_names=['pitts30k_val', 'pitts30k_test', 'msls_val'],

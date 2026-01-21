@@ -48,46 +48,34 @@ TRAIN_CITIES = [
 
 class GSVCitiesDataModule(pl.LightningDataModule):
     def __init__(self,
+                 train_transform,
+                 valid_transform,
                  batch_size=32,
                  img_per_place=4,
                  min_img_per_place=4,
                  shuffle_all=False,
-                 image_size=(480, 640),
                  num_workers=4,
                  show_data_stats=True,
                  cities=TRAIN_CITIES,
-                 mean_std=IMAGENET_MEAN_STD,
                  batch_sampler=None,
                  random_sample_from_each_place=True,
-                 val_set_names=['pitts30k_val', 'msls_val']
+                 val_set_names=['pitts30k_val', 'msls_val'],
                  ):
         super().__init__()
         self.batch_size = batch_size
         self.img_per_place = img_per_place
         self.min_img_per_place = min_img_per_place
         self.shuffle_all = shuffle_all
-        self.image_size = image_size
         self.num_workers = num_workers
         self.batch_sampler = batch_sampler
         self.show_data_stats = show_data_stats
         self.cities = cities
-        self.mean_dataset = mean_std['mean']
-        self.std_dataset = mean_std['std']
         self.random_sample_from_each_place = random_sample_from_each_place
         self.val_set_names = val_set_names
         self.save_hyperparameters() # save hyperparameter with Pytorch Lightening
 
-        self.train_transform = T.Compose([
-            T.Resize(image_size, interpolation=T.InterpolationMode.BILINEAR),
-            T.RandAugment(num_ops=3, interpolation=T.InterpolationMode.BILINEAR),
-            T.ToTensor(),
-            T.Normalize(mean=self.mean_dataset, std=self.std_dataset),
-        ])
-
-        self.valid_transform = T.Compose([
-            T.Resize(image_size, interpolation=T.InterpolationMode.BILINEAR),
-            T.ToTensor(),
-            T.Normalize(mean=self.mean_dataset, std=self.std_dataset)]) #Is there normalization in 3D foundation models?
+        self.train_transform = train_transform
+        self.valid_transform = valid_transform
 
         self.train_loader_config = {
             'batch_size': self.batch_size,
@@ -185,5 +173,4 @@ class GSVCitiesDataModule(pl.LightningDataModule):
             ["Batch size (PxK)", f"{self.batch_size}x{self.img_per_place}"])
         table.add_row(
             ["# of iterations", f"{self.train_dataset.__len__()//self.batch_size}"])
-        table.add_row(["Image size", f"{self.image_size}"])
         print(table.get_string(title="Training config"))

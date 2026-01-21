@@ -1,6 +1,6 @@
 define: &process_res 252 #This is the largest dimension.
 
-backbone_arch: "da3-base"
+backbone_arch: "da3-small"
 
 input_config:
   img_size: *process_res #Actually, this one is not used at all.

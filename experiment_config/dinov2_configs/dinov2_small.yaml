@@ -1,0 +1,17 @@
+backbone_arch: "dinov2_vits14"
+
+input_config:
+  img_size: [224, 224]
+
+backbone_config:
+  num_trainable_blocks: 2
+  return_token: true
+  norm_layer: true
+
+agg_config:
+  #num_channels from dinov2-small: 384
+  num_clusters: 64
+  cluster_dim: 128 # 384 -> 512 -> 128. Maybe we'd like 384 -> 256 -> 64
+  token_dim: 256 # 384 -> 512 -> 128. Maybe we'd like 384 -> 256 -> 128.
+
+max_epochs: 10

@@ -1,5 +1,5 @@
 
-
+import os
 from typing import Sequence
 
 from PIL import Image
@@ -14,11 +14,15 @@ from depth_anything_3.model.dinov2.vision_transformer import DinoVisionTransform
 from depth_anything_3.model.da3 import DepthAnything3Net
 
 
+#FOR COMPARISON
+#save_dir = '/media/emmanuel/nvme_storage/da3_salad_data'
+
+
 class DepthAnything3Backbone(nn.Module):
     def __init__(self, model_name: str = "da3-base", from_block: int=1, **kwargs):
         super().__init__()
         self.from_block = from_block
-        self.da3 = DepthAnything3(model_name, **kwargs)
+        self.da3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
 
     def forward(
         self,
@@ -40,9 +44,23 @@ class DepthAnything3Backbone(nn.Module):
             image, extrinsics, intrinsics, process_res
         )
 
+        #FOR COMPARISON
+        #imgs_preprocessed = imgs_cpu.cpu().numpy()
+        #np.save(
+        #    os.path.join(save_dir, 'imgs_preprocessed.npy'),
+        #    imgs_preprocessed
+        #)
+
         # Prepare tensors for model
         #This basically does: .to(device, non_blocking=True)[None].float() for each input
         imgs, ex_t, in_t = self.da3._prepare_model_inputs(imgs_cpu, extrinsics, intrinsics)
+
+        #FOR COMPARISON
+        #imgs_prepared = imgs.cpu().numpy()
+        #np.save(
+        #    os.path.join(save_dir, 'imgs_prepared.npy'),
+        #    imgs_prepared
+        #)
 
         # Normalize extrinsics
         # If ext_t is None, returns None.
@@ -187,7 +205,7 @@ class DepthAnything3Backbone(nn.Module):
 
 
 class DepthAnything3Dino(DepthAnything3Backbone):
-    def __init__(self, model_name: str = "da3-base", return_token: bool=False, **kwargs):
+    def __init__(self, model_name: str = "da3-base", return_token: bool=False, process_res: int=252, **kwargs):
         super().__init__(model_name, **kwargs)
         self.return_token = return_token
         if 'num_trainable_blocks' in kwargs:
@@ -196,6 +214,7 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             print("norm_layer argument flag is not supported for da3. DA3 is used as is")
         dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
         self.num_channels = dino.num_features
+        self.process_res = process_res
 
     def forward(
         self,
@@ -219,10 +238,14 @@ class DepthAnything3Dino(DepthAnything3Backbone):
                                 #But for applications, I need a model which predicts all.
 
         assert C == 3, "Number of channels mismatch"
-        assert H == W, "Expected pre-processed square image"
-        process_res = H
+        #process_res = W
 
         image = [(255*tensor.permute(1, 2, 0)).cpu().numpy().astype(np.uint8) for tensor in x]
+
+        #FOR COMPARISON
+        #for i, img in enumerate(image):
+        #    np.save(os.path.join(save_dir, f'uint8_img_{i}.npy'), img)
+            
         assert len(image) == S, "Lenght mismatch"
         assert image[0].shape[2] == 3, "image (np.ndarray) shape mismatch"
 
@@ -230,8 +253,9 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             extrinsics = extrinsics.cpu().numpy()
         if intrinsics is not None:
             intrinsics = intrinsics.cpu().numpy()
+        
         output = super().forward(
-            image, extrinsics, intrinsics, process_res,
+            image, extrinsics, intrinsics, self.process_res,
             export_feat_layers=[feat_layer], **kwargs
         )
 
@@ -271,12 +295,14 @@ def intermediate_features(
     extrinsics: np.ndarray | None = None,
     intrinsics: np.ndarray | None = None,
     process_res: int = 504,
+    export_feat_layers: list = []
 ) -> Prediction:
-    dino: DinoVisionTransformer = model.model.backbone.pretrained
-    export_feat_layers = [dino.alt_start - 1]
+    if not export_feat_layers:
+        dino: DinoVisionTransformer = model.model.backbone.pretrained
+        export_feat_layers = [dino.alt_start - 1]
     prediction = model.inference(
         image, extrinsics, intrinsics,
-        export_dir=export_dir,
+        #export_dir=export_dir,
         process_res=process_res,
         export_feat_layers=export_feat_layers,
     )
@@ -290,4 +316,5 @@ def intermediate_features(
 # [ ] Compare if results are the same. (one to one).
 # [ ] Train SALAD with ViT-Base.
 # [ ] Adapt code to use other ViT confs.
+# [ ] Double Check if patch tokens order remain constant
 

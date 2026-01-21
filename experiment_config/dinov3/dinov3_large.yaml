@@ -1,17 +1,18 @@
-backbone_arch: "dinov2_vitl14"
+backbone_arch: "dinov3_vitl16"
 
 input_config:
-  img_size: [224, 224]
+  img_size: [256, 256]
 
 backbone_config:
   frozen: true
   return_token: true
   norm_layer: true
+  rope_sincos: true
 
 agg_config:
-  #num_channels from dinov2-large: 1024
+  #num_channels from dinov3-large: 1024 (Same as dinov2-Large)
   num_clusters: 64
   cluster_dim: 128 # 1024 -> 512 -> 128
   token_dim: 256 # 1024 -> 512 -> 256
 
-max_epochs: 10
+max_epochs: 8

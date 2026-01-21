@@ -1,9 +1,13 @@
 
 #Function from dinov2+salad repo with modifications
+from typing import Tuple, Callable
+
+from torchvision import transforms as T
+
 
 def get_backbone(
-        backbone_arch='dinov2',
-        backbone_config={}
+        backbone_arch: str='dinov2',
+        backbone_config: dict={}
     ):
     """Helper function that returns the backbone given its name
 
@@ -32,6 +36,20 @@ def get_backbone(
         freeze_model(backbone)
 
     return backbone
+
+
+def get_transforms(backbone_arch: str, input_config: dict) -> Tuple[Callable]:
+    is_dino = backbone_arch.lower().startswith('dino')
+    if is_dino:
+        from .backbones.dino_transforms import get_transforms as dino_get_transforms
+        train_transform, valid_transform = dino_get_transforms(input_config)
+    elif 'da3' in backbone_arch.lower():
+        from .backbones.da3 import get_transforms as da3_get_transforms
+        train_transform, valid_transform = da3_get_transforms()
+    else:
+        raise ValueError(f"Backbone {backbone_arch} not supported")
+
+    return train_transform, valid_transform
 
 
 DINO_EMBEDDING_DIMS = {

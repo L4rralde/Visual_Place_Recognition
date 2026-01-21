@@ -24,7 +24,7 @@ def load_config(yaml_path):
     else:
         backbone_config_fields.append('num_trainable_blocks')
 
-    if is_pure_dino:
+    if is_pure_dino: #TODO. Add normalization layer to DA3
         backbone_config_fields.append('norm_layer')
 
     for field in backbone_config_fields:
@@ -33,9 +33,6 @@ def load_config(yaml_path):
 
     # Validate input_config subfields
     input_config_fields = ['img_size']
-    if not is_pure_dino:
-        input_config_fields.append('mean_std')
-
     for field in input_config_fields:
         if field not in config['input_config']:
             raise ValueError(f"Missing required input_config field in YAML: {field}")
@@ -46,4 +43,3 @@ def load_config(yaml_path):
             raise ValueError(f"Missing required agg_config field in YAML: {field}")
 
     return config
-
