@@ -17,11 +17,12 @@ def parse_args():
     return args
 
 
-def run_randomized_consistency_test(model_instance, img_dir, layer_idx=0, num_seeds=10):
+def run_randomized_consistency_test(model_instance, img_dir, layer_idx=-1, num_seeds=10):
     """
     Runs consistency tests comparing ALL shared images between two randomized batches.
     """
-    
+    if layer_idx == -1:
+        layer_idx = model_instance.model.backbone.pretrained.alt_start - 1
     # Pool of available image indices (0 to 9)
     image_pool = list(range(10))
     
@@ -96,6 +97,7 @@ def run_randomized_consistency_test(model_instance, img_dir, layer_idx=0, num_se
             total_seed_diff += diff
             
             status = "OK" if diff < 1e-5 else "DIFF"
+            assert status == "OK"
             #print(f"    Image {shared_id}: Diff {diff:.6f} [{status}]")
 
         # Summary for this seed
