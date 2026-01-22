@@ -93,7 +93,7 @@ def run_randomized_consistency_test(model_instance, img_dir, layer_idx=-1, num_s
 
             # Calculate L1 Difference (Absolute Sum)
             # CRITICAL: We use .abs() so negative and positive errors don't cancel out
-            diff = abs((feat_a - feat_b).sum())
+            diff = np.absolute((feat_a - feat_b)).sum()
             total_seed_diff += diff
             
             status = "OK" if diff < 1e-5 else "DIFF"

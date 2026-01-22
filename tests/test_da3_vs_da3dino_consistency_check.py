@@ -14,7 +14,6 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from vpr.models.backbones.da3 import get_transforms as da3_get_transforms
 import vpr.models.backbones.da3.da3 as da3
-from vpr.models.backbones.da3.depth_anything_3.api import DepthAnything3
 from utils import load_da3_as_is, load_da3_dino, supported_configs
 
 
@@ -115,11 +114,10 @@ def compare_pipelines_consistency(
         # Both output tensors should be [Batch, Channels, H, W]
         
         # 1. Check Shape
-        print(feat_a.shape, feat_b.shape)
         assert feat_a.shape == feat_b.shape, "Shape mismatch"
         
         # 2. Check Values (L1 Difference)
-        abs_diff = abs((feat_a - feat_b).sum())
+        abs_diff = np.absolute(feat_a - feat_b).sum()
         
         # 3. Report
         # We use a slightly higher tolerance (1e-4) here because 
