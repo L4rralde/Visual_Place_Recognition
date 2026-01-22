@@ -45,7 +45,7 @@ def get_transforms(backbone_arch: str, input_config: dict) -> Tuple[Callable]:
         train_transform, valid_transform = dino_get_transforms(input_config)
     elif 'da3' in backbone_arch.lower():
         from .backbones.da3 import get_transforms as da3_get_transforms
-        train_transform, valid_transform = da3_get_transforms()
+        train_transform, valid_transform = da3_get_transforms(input_config)
     else:
         raise ValueError(f"Backbone {backbone_arch} not supported")
 
