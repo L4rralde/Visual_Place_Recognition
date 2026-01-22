@@ -291,7 +291,6 @@ class DepthAnything3Dino(DepthAnything3Backbone):
 def intermediate_features(
     model: DepthAnything3,
     image: list[np.ndarray | Image.Image | str],
-    export_dir: str,
     extrinsics: np.ndarray | None = None,
     intrinsics: np.ndarray | None = None,
     process_res: int = 504,
@@ -302,7 +301,6 @@ def intermediate_features(
         export_feat_layers = [dino.alt_start - 1]
     prediction = model.inference(
         image, extrinsics, intrinsics,
-        #export_dir=export_dir,
         process_res=process_res,
         export_feat_layers=export_feat_layers,
     )

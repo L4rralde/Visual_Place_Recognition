@@ -106,7 +106,6 @@ def compare_pipelines_consistency(
         out_b = da3.intermediate_features(
             model_instance, 
             selected_paths,
-            'foo',
             process_res=img_size, 
         )
         

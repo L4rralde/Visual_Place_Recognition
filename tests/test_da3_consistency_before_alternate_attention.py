@@ -64,13 +64,13 @@ def run_randomized_consistency_test(model_instance, img_dir, layer_idx=0, num_se
         # Note: I added runner_module as an arg to avoid hardcoding 'da3'
         pred_a = da3.intermediate_features(
             model_instance, paths_a, 
-            export_dir=f'preds_seed{seed}_a', process_res=224, 
+            process_res=224, 
             export_feat_layers=[layer_idx]
         )
         
         pred_b = da3.intermediate_features(
             model_instance, paths_b, 
-            export_dir=f'preds_seed{seed}_b', process_res=224, 
+            process_res=224, 
             export_feat_layers=[layer_idx]
         )
 
