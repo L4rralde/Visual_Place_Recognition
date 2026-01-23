@@ -1,6 +1,7 @@
 
 import os
 from typing import Sequence
+from typing import List
 
 from PIL import Image
 import torch
@@ -218,7 +219,7 @@ class DepthAnything3Dino(DepthAnything3Backbone):
 
     def forward(
         self,
-        x: torch.Tensor,
+        x: torch.Tensor | List[str | Image.Image | np.ndarray],
         feat_layer: int = -1,
         extrinsics: torch.Tensor | None = None,
         intrinsics: torch.Tensor | None = None,
@@ -229,25 +230,29 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             feat_layer = dino.alt_start -1
         assert feat_layer < dino.alt_start, "Double check what's the last layer before alternate attention"
 
-        S, C, H, W = x.shape #Here, the sequence len will play as Batch size.
-                                #However, images may come from different scenes.
-                                #Rendering alternate attention non-sense at all.
-                                #Since only SALAD will be trained, it might mather nothing after all.
-                                #But we want a model wich returns both features for SALAD and 3D predictions.
-                                #I must remove alternate attention after I check same features are dropped.
-                                #But for applications, I need a model which predicts all.
+        if isinstance(x, torch.Tensor):
+            S, C, H, W = x.shape #Here, the sequence len will play as Batch size.
+                                    #However, images may come from different scenes.
+                                    #Rendering alternate attention non-sense at all.
+                                    #Since only SALAD will be trained, it might mather nothing after all.
+                                    #But we want a model wich returns both features for SALAD and 3D predictions.
+                                    #I must remove alternate attention after I check same features are dropped.
+                                    #But for applications, I need a model which predicts all.
 
-        assert C == 3, "Number of channels mismatch"
-        #process_res = W
+            assert C == 3, "Number of channels mismatch"
+            #process_res = W
 
-        image = [(255*tensor.permute(1, 2, 0)).cpu().numpy().astype(np.uint8) for tensor in x]
-
+            #da3 api expects a list of: np.ndarray, paths or PIL Images.
+            #Here, conversion to np.ndarray is conducted
+            image = list(x.mul(255).permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8).cpu().numpy())
+            assert image[0].shape[2] == 3, "image (np.ndarray) shape mismatch"
+        elif isinstance(x, list):
+            image = x
+        else:
+            raise ValueError("Expected tensor or datatype compatible with da3 api.")
         #FOR COMPARISON
         #for i, img in enumerate(image):
         #    np.save(os.path.join(save_dir, f'uint8_img_{i}.npy'), img)
-            
-        assert len(image) == S, "Lenght mismatch"
-        assert image[0].shape[2] == 3, "image (np.ndarray) shape mismatch"
 
         if extrinsics is not None:
             extrinsics = extrinsics.cpu().numpy()
@@ -309,10 +314,10 @@ def intermediate_features(
 
 
 #TODO:
-# [ ] Modify code to not drop cls token from auxiliar outputs.
-# [ ] Write code (with out modifying depth anything source code) which takes depth anything outputs before alternate attention blocks (including cls tokens)
-# [ ] Compare if results are the same. (one to one).
-# [ ] Train SALAD with ViT-Base.
+# [x] Modify code to not drop cls token from auxiliar outputs.
+# [x] Write code (with out modifying depth anything source code) which takes depth anything outputs before alternate attention blocks (including cls tokens)
+# [x] Compare if results are the same. (one to one). Only if no resized is applied to input tensor
+# [x] Train SALAD with ViT-Base.
 # [ ] Adapt code to use other ViT confs.
-# [ ] Double Check if patch tokens order remain constant
+# [x] Double Check if patch tokens order remain constant. They do in the first release
 
