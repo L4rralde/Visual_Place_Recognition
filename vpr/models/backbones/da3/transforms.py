@@ -42,12 +42,12 @@ class OptimizedDA3Resize:
 
 def get_transforms(input_config: dict) -> Tuple[Callable]:
     train_transform = T.Compose([
-        OptimizedDA3Resize(input_config['img_size']),
+        OptimizedDA3Resize(input_config['img_size']), #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
         T.RandAugment(num_ops=3, interpolation=T.InterpolationMode.BILINEAR),
         T.ToTensor(),
     ])
     valid_transform = T.Compose([
-        OptimizedDA3Resize(input_config['img_size']),
+        OptimizedDA3Resize(input_config['img_size']), #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
         T.ToTensor(),
     ])
 

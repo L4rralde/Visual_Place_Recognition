@@ -48,7 +48,8 @@ if __name__ == '__main__':
         random_sample_from_each_place=True,
         num_workers=10,
         show_data_stats=True,
-        #val_set_names=['pitts30k_val', 'pitts30k_test', 'msls_val'],
+        #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
+        #val_set_names=['pitts30k_val', 'pitts30k_test', 'msls_val'], 
         val_set_names=['pitts30k_val', 'pitts30k_test'], #FIXME. By the moment, the transformation used for da3dino does not work with msls_val because there are images with different aspect ratios
     )
 

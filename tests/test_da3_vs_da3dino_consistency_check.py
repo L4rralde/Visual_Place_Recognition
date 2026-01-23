@@ -142,7 +142,9 @@ def main():
     img_size = args.img_size
 
     input_config = {'img_size': img_size}
-    #train_transform, valid_transform = da3_get_transforms(input_config)
+
+    #Bug: #https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
+    #train_transform, valid_transform = da3_get_transforms(input_config) 
     valid_transform = T.ToTensor()
 
     img_dir = os.path.abspath(args.img_dir)
