@@ -8,7 +8,10 @@ def load_config(yaml_path):
         config = yaml.safe_load(file)
 
     # Validate required fields
-    required_fields = ['backbone_arch', 'input_config', 'backbone_config', 'max_epochs']
+    required_fields = [
+        'backbone_arch', 'backbone_config', 'agg_config',
+        'input_config', 'max_epochs',
+    ]
     for field in required_fields:
         if field not in config:
             raise ValueError(f"Missing required field in YAML: {field}")
