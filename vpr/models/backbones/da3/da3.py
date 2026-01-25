@@ -1,7 +1,7 @@
 
 import os
 from typing import Sequence
-from typing import List
+from typing import List, Dict, Tuple
 
 from PIL import Image
 import torch
@@ -20,12 +20,29 @@ from depth_anything_3.model.da3 import DepthAnything3Net
 
 
 class DepthAnything3Backbone(nn.Module):
-    def __init__(self, model_name: str = "da3-base", from_block: int=1, **kwargs):
+    def __init__(self, model_name: str = "da3-base", **kwargs):
         super().__init__()
-        self.from_block = from_block
         self.da3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
 
     def forward(
+        self,
+        image: list[np.ndarray | Image.Image | str],
+        extrinsics: np.ndarray | None = None,
+        intrinsics: np.ndarray | None = None,
+        process_res: int = 504,
+        export_feat_layers: Sequence[int] | None = None,
+        **kwargs
+    ) -> Dict[str, torch.Tensor]:
+        return self.da3_inference(
+            image,
+            extrinsics,
+            intrinsics,
+            process_res,
+            export_feat_layers,
+            **kwargs
+        )
+
+    def da3_inference(
         self,
         image: list[np.ndarray | Image.Image | str],
         extrinsics: np.ndarray | None = None,
@@ -88,7 +105,7 @@ class DepthAnything3Backbone(nn.Module):
                 #Model forward def
                 if ex_t_norm is not None:
                     with torch.autocast(device_type=imgs.device.type, enabled=False):
-                        cam_token = self.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
+                        cam_token = self.da3.model.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
                 else:
                     cam_token = None
             
@@ -135,7 +152,9 @@ class DepthAnything3Backbone(nn.Module):
                 #Let x be a batch of sequences. x.shape = (batch_size, sequence len, channels, height, width)
                 dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
                 outputs, aux_outputs = dino._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
-                    imgs, self.from_block, feat_layers,
+                    imgs,
+                    n=self.da3.model.backbone.out_layers,
+                    export_feat_layers=feat_layers,
                     cam_token=cam_token,
                 )
                 camera_tokens = [out[0] for out in outputs]
@@ -162,9 +181,9 @@ class DepthAnything3Backbone(nn.Module):
                 aux_feats = aux_outputs
                 cls_token = cls_outputs
 
-                da3_model: DepthAnything3Net = self.da3.model
                 H, W = imgs.shape[-2], imgs.shape[-1]
 
+                da3_model: DepthAnything3Net = self.da3.model
                 if kwargs.get("export_depth", False):
                     use_ray_pose = kwargs.get('use_ray_pose', False)
                     infer_gs = kwargs.get('infer_gs', False)
@@ -176,9 +195,9 @@ class DepthAnything3Backbone(nn.Module):
                         else:
                             output = da3_model._process_camera_estimation(feats, H, W, output)
                         if infer_gs:
-                            output = da3_model._process_gs_head(feats, H, W, output, imgs, extrinsics, intrinsics)
+                            output = da3_model._process_gs_head(feats, H, W, output, imgs, ex_t_norm, in_t)
                     
-                    output = da3_model._process_mono_sky_estimation(output)    
+                    #output = da3_model._process_mono_sky_estimation(output)    
                 else:
                     output = Dict()
 
@@ -200,10 +219,6 @@ class DepthAnything3Backbone(nn.Module):
     
         return aux_cls
 
-    def inference(self) -> Prediction:
-        #FUTURE
-        raise NotImplementedError()
-
 
 class DepthAnything3Dino(DepthAnything3Backbone):
     def __init__(self, model_name: str = "da3-base", return_token: bool=False, process_res: int=252, **kwargs):
@@ -216,20 +231,68 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
         self.num_channels = dino.num_features
         self.process_res = process_res
+        self.dino_alt_start = dino.alt_start
 
     def forward(
         self,
         x: torch.Tensor | List[str | Image.Image | np.ndarray],
-        feat_layer: int = -1,
+        feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
         extrinsics: torch.Tensor | None = None,
         intrinsics: torch.Tensor | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
+        image, extrinsics, intrinsics = self._prepare_inputs(x, extrinsics, intrinsics)
+
         dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
         if feat_layer == -1:
             feat_layer = dino.alt_start -1
         assert feat_layer < dino.alt_start, "Double check what's the last layer before alternate attention"
 
+        output = self.da3_inference(
+            image, extrinsics, intrinsics, self.process_res,
+            export_feat_layers=[feat_layer], **kwargs
+        )
+
+        #PATCH_SIZE = 14 (same in DINOv2)
+        #Image resizing. Upper resize. Resize to 504.
+        #Image is resized such as the largest dimension is 504.
+        # Then, we make both dimensions divisible by the PATCH SIZE
+        # by converting dimensions to the nearest multiple of the batch size.
+        # This means that the processed dimensions depend on the input image.
+        # So, also, the number of patches is not fixed.
+        # However, SALAD works with a variable number of tokens, but a fixed number is required for comparison.
+        # A trade-off is required to compare backbones' performance.
+        # Note also that dino+salad is trained with square images, while da3 is not.
+
+        #f is already detached.
+        f_reshaped, t_reshaped = self._format_output_for_salad(output, feat_layer)
+
+        if self.return_token:
+            return f_reshaped, t_reshaped
+        return f_reshaped
+
+    def _format_output_for_salad(self, output: Dict[str, torch.Tensor], feat_layer: int) -> Tuple[torch.Tensor]:
+        f = output.aux[f"feat_layer_{feat_layer}"] #Shape = B, S, h_tokens, w_tokens, dim
+        B, S, h, w, dim = f.shape
+        #We expect B=1 or S = 1
+        assert B == 1 or S == 1, "Something wrong happened with features' shape"
+
+        t = output.aux_cls[f"feat_layer_{feat_layer}"]
+        B, S, t_dim = t.shape
+        assert dim == t_dim == self.num_channels, "Something wrong happened with tokens dim"
+        assert B == 1 or S == 1, "Something wrong happened with features' shape"
+
+        f_reshaped = f.view(B*S, h, w, dim).permute(0, 3, 1, 2)
+        t_reshaped = t.view(B*S, dim)
+
+        return f_reshaped, t_reshaped
+
+    def _prepare_inputs(
+        self,
+        x: torch.Tensor | List[str | Image.Image | np.ndarray],
+        extrinsics: torch.Tensor | None = None,
+        intrinsics: torch.Tensor | None = None,
+    ) -> tuple:
         if isinstance(x, torch.Tensor):
             S, C, H, W = x.shape #Here, the sequence len will play as Batch size.
                                     #However, images may come from different scenes.
@@ -258,40 +321,9 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             extrinsics = extrinsics.cpu().numpy()
         if intrinsics is not None:
             intrinsics = intrinsics.cpu().numpy()
+
+        return image, extrinsics, intrinsics
         
-        output = super().forward(
-            image, extrinsics, intrinsics, self.process_res,
-            export_feat_layers=[feat_layer], **kwargs
-        )
-
-        #PATCH_SIZE = 14 (same in DINOv2)
-        #Image resizing. Upper resize. Resize to 504.
-        #Image is resized such as the largest dimension is 504.
-        # Then, we make both dimensions divisible by the PATCH SIZE
-        # by converting dimensions to the nearest multiple of the batch size.
-        # This means that the processed dimensions depend on the input image.
-        # So, also, the number of patches is not fixed. SALAD requires a fixed number of tokens.
-        # However, SALAD works with a variable number of tokens, but a fixed number is required for comparison.
-        # A trade-off is required to compare backbones' performance.
-
-        #f is already detached.
-        f = output.aux[f"feat_layer_{feat_layer}"] #Shape = B, S, h_tokens, w_tokens, dim
-        B, S, h, w, dim = f.shape
-        #We expect B=1 or S = 1
-        assert B == 1 or S == 1, "Something wrong happened with features' shape"
-
-        t = output.aux_cls[f"feat_layer_{feat_layer}"]
-        B, S, t_dim = t.shape
-        assert dim == t_dim == self.num_channels, "Something wrong happened with tokens dim"
-        assert B == 1 or S == 1, "Something wrong happened with features' shape"
-
-        f_reshaped = f.view(B*S, h, w, dim).permute(0, 3, 1, 2)
-        t_reshaped = t.view(B*S, dim)
-
-        if self.return_token:
-            return f_reshaped, t_reshaped
-        return f_reshaped
-
 
 def intermediate_features(
     model: DepthAnything3,
