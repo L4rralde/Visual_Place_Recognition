@@ -3,10 +3,9 @@ import argparse
 import torch
 import pytorch_lightning as pl
 
-from vpr_model import VPRModel
 from dataloaders.GSVCitiesDataloader import GSVCitiesDataModule
 from utils.yaml_config import load_config
-from vpr.models import get_transforms
+from vpr.models import get_transforms, VPRModel
 
 
 torch.set_float32_matmul_precision('high')
