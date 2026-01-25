@@ -1,5 +1,6 @@
 import os
 from typing import Dict
+import re
 import yaml
 
 import pandas as pd
@@ -13,8 +14,15 @@ class LightningLog:
 
     @staticmethod
     def load_config(path: str) -> None:
-        with open(path, 'r') as file:
-            config = yaml.safe_load(file)
+        with open(path, 'r') as f:
+            content = f.read()
+        
+        clean_content = re.sub(
+            r'!!python/(object|apply|set)[:/][^\s]+',
+            '',
+            content
+        )
+        config = yaml.safe_load(clean_content)
 
         required_fields = ['backbone_arch',  'backbone_config', 'agg_config']
         for field in required_fields:

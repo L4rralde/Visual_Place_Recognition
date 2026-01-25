@@ -9,6 +9,7 @@ import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from vpr.models.backbones.da3 import DepthAnything3Dino
 from vpr.models import SALAD
+from utils import LightningLog
 
 
 class DA3Salad(nn.Module):
@@ -24,6 +25,19 @@ class DA3Salad(nn.Module):
             num_channels=self.backbone.num_channels,
             **agg_args
         )
+
+    @staticmethod
+    def from_lightning_log(path: str) -> "DA3Salad":
+        log = LightningLog(path)
+        assert log.agg_arch == "SALAD", "By the moment only SALAD is supported"
+        model = DA3Salad(
+            log.backbone_arch,
+            log.backbone_config,
+            log.agg_config
+        )
+        model.load_state_dict(log.state_dict)
+
+        return model
 
     def forward(
         self,
