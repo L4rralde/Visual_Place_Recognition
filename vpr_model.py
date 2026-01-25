@@ -13,8 +13,7 @@ import torch
 from torch.optim import lr_scheduler, optimizer
 
 import utils
-from .helper import get_backbone
-from .salad import SALAD
+from vpr.models import helper, SALAD
 
 
 class VPRModel(pl.LightningModule):
@@ -85,7 +84,7 @@ class VPRModel(pl.LightningModule):
         
         # ----------------------------------
         # get the backbone and the aggregator
-        self.backbone = get_backbone(backbone_arch, backbone_config)
+        self.backbone = helper.get_backbone(backbone_arch, backbone_config)
         self.aggregator = SALAD(num_channels=self.backbone.num_channels, **agg_config)
 
         # For validation in Lightning v2.0.0
