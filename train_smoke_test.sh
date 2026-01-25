@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-python train_from_yaml.py --config ./trainig_configs/baseline.yaml
+python train_from_yaml.py --config ./training_configs/baseline.yaml
