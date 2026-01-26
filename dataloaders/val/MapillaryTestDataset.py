@@ -23,7 +23,7 @@ class MSLSTest(Dataset):
         self.input_transform = input_transform
 
         self.dbImages = np.load(os.path.join(GT_ROOT, 'msls_test/msls_test_dbImages.npy'), allow_pickle=True)
-        self.qImages = np.load(os.path.join(GT_ROOT+'msls_test/msls_test_qImages.npy'), allow_pickle=True)
+        self.qImages = np.load(os.path.join(GT_ROOT, 'msls_test/msls_test_qImages.npy'), allow_pickle=True)
         
         # reference images then query images
         self.images = np.concatenate((self.dbImages, self.qImages))
