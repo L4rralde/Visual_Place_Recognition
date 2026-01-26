@@ -45,6 +45,7 @@ class DA3Salad(nn.Module):
         feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
         extrinsics: torch.Tensor | None = None,
         intrinsics: torch.Tensor | None = None,
+        process_res: int = -1,
         infer_gs: bool = False,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -56,11 +57,17 @@ class DA3Salad(nn.Module):
             feat_layer = self.backbone.dino_alt_start - 1
         assert feat_layer < self.backbone.dino_alt_start, "Double check what's the last layer before alternate attention"
 
+        if process_res == -1:
+            H, W, _ = image[0].shape #FIXME. Error. image list may be a image of paths or a list of Image.Image. 
+                                        #Not always a np.ndarray.
+                                        #By the moment process_res =-1 only when a list of ndarrays are passed
+            process_res = max(H, W)
+
         output = self.backbone.da3_inference(
             image,
             extrinsics,
             intrinsics,
-            self.backbone.process_res,
+            process_res,
             export_feat_layers=[feat_layer],
             export_depth=True,
             infer_gs=infer_gs,
@@ -83,11 +90,18 @@ class DA3Salad(nn.Module):
         feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
         extrinsics: torch.Tensor | None = None,
         intrinsics: torch.Tensor | None = None,
+        process_res: int = -1,
         infer_gs: bool = False,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         output = self.forward(
-            x, feat_layer, extrinsics, intrinsics, infer_gs, **kwargs
+            x,
+            feat_layer,
+            extrinsics,
+            intrinsics,
+            process_res,
+            infer_gs,
+            **kwargs
         )
         
         for k, v in output.items():

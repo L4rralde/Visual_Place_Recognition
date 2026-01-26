@@ -20,6 +20,7 @@ from depth_anything_3.model.da3 import DepthAnything3Net
 
 
 class DepthAnything3Backbone(nn.Module):
+    PATCH_SIZE: int = 14
     def __init__(self, model_name: str = "da3-base", **kwargs):
         super().__init__()
         self.da3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
@@ -29,7 +30,7 @@ class DepthAnything3Backbone(nn.Module):
         image: list[np.ndarray | Image.Image | str],
         extrinsics: np.ndarray | None = None,
         intrinsics: np.ndarray | None = None,
-        process_res: int = 504,
+        process_res: int = -1,
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -47,7 +48,7 @@ class DepthAnything3Backbone(nn.Module):
         image: list[np.ndarray | Image.Image | str],
         extrinsics: np.ndarray | None = None,
         intrinsics: np.ndarray | None = None,
-        process_res: int = 504,
+        process_res: int = -1,
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -221,7 +222,7 @@ class DepthAnything3Backbone(nn.Module):
 
 
 class DepthAnything3Dino(DepthAnything3Backbone):
-    def __init__(self, model_name: str = "da3-base", return_token: bool=False, process_res: int=252, **kwargs):
+    def __init__(self, model_name: str = "da3-base", return_token: bool=False, **kwargs):
         super().__init__(model_name, **kwargs)
         self.return_token = return_token
         if 'num_trainable_blocks' in kwargs:
@@ -230,13 +231,13 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             print("norm_layer argument flag is not supported for da3. DA3 is used as is")
         dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
         self.num_channels = dino.num_features
-        self.process_res = process_res
         self.dino_alt_start = dino.alt_start
 
     def forward(
         self,
         x: torch.Tensor | List[str | Image.Image | np.ndarray],
         feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
+        process_res: int = -1,
         extrinsics: torch.Tensor | None = None,
         intrinsics: torch.Tensor | None = None,
         **kwargs
@@ -248,8 +249,12 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             feat_layer = dino.alt_start -1
         assert feat_layer < dino.alt_start, "Double check what's the last layer before alternate attention"
 
+        if process_res == -1:
+            H, W, _ = image[0].shape
+            process_res = max(H, W)
+
         output = self.da3_inference(
-            image, extrinsics, intrinsics, self.process_res,
+            image, extrinsics, intrinsics, process_res,
             export_feat_layers=[feat_layer], **kwargs
         )
 

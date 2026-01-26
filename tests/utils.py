@@ -19,13 +19,12 @@ def load_da3_as_is(config_name: str='BASE'):
     return da3
 
 
-def load_da3_dino(config_name: str='BASE', return_token: bool=True, process_res: int=252):
+def load_da3_dino(config_name: str='BASE', return_token: bool=True):
     if not config_name in supported_configs:
         raise ValueError(f"Configuration {config_name} is not supported. Try one of the followings: {supported_configs}")
     da3_dino = da3.DepthAnything3Dino(
         model_name=f'da3-{config_name.lower()}',
         return_token=return_token,
-        process_res=process_res
     )
     freeze_model(da3_dino)
 

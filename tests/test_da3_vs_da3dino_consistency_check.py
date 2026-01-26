@@ -94,7 +94,7 @@ def compare_pipelines_consistency(
         # Assumption: da3_dino returns a dictionary matching the aux structure 
         # or we need to access the specific key.
         with torch.no_grad():
-            out_a = da3_dino_fn(img_tensor)
+            out_a = da3_dino_fn(img_tensor, process_res=img_size)
         
         feat_a, _ = out_a
         feat_a = feat_a.permute(0, 2, 3, 1).cpu().numpy()
@@ -152,7 +152,7 @@ def main():
     
     for config in supported_configs:
         da3_as_is = load_da3_as_is(config).to(device)
-        da3_dino = load_da3_dino(config, process_res=img_size).to(device)
+        da3_dino = load_da3_dino(config).to(device)
         try:
             compare_pipelines_consistency(da3_dino, da3_as_is, dataset, img_size, num_seeds=100)
         except AssertionError as e:
