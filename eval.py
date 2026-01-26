@@ -22,7 +22,9 @@ from dataloaders.val.PittsburghDataset import PittsburghDataset
 from dataloaders.val.SPEDDataset import SPEDDataset
 
 
-VAL_DATASETS = ['MSLS', 'MSLS_Test', 'pitts30k_test', 'pitts250k_test', 'Nordland', 'SPED']
+#MSLS_Test not working
+#VAL_DATASETS = ['MSLS', 'MSLS_Test', 'pitts30k_test', 'pitts250k_test', 'Nordland', 'SPED']
+VAL_DATASETS = ['MSLS', 'pitts30k_test', 'pitts250k_test', 'Nordland', 'SPED']
 
 
 def get_val_dataset(dataset_name, transform):
