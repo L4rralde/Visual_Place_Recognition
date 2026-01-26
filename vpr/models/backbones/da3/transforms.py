@@ -41,13 +41,21 @@ class OptimizedDA3Resize:
 
 
 def get_transforms(input_config: dict) -> Tuple[Callable]:
+    img_size = input_config['img_size']
+    if isinstance(img_size, int):
+        resize = OptimizedDA3Resize(input_config['img_size'])
+    elif isinstance(img_size, list) and len(img_size) == 2:
+        #Same in dino
+        resize = T.Resize(img_size, interpolation=T.InterpolationMode.BILINEAR)
+    else:
+        raise ValueError(f"Unexpected format for img_size: {img_size}")
     train_transform = T.Compose([
-        OptimizedDA3Resize(input_config['img_size']), #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
+        resize, #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
         T.RandAugment(num_ops=3, interpolation=T.InterpolationMode.BILINEAR),
         T.ToTensor(),
     ])
     valid_transform = T.Compose([
-        OptimizedDA3Resize(input_config['img_size']), #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
+        resize, #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
         T.ToTensor(),
     ])
 

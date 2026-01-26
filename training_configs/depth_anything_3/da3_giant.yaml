@@ -8,7 +8,6 @@ input_config:
 backbone_config:
   frozen: true
   return_token: true
-  process_res: *process_res
 
 agg_config:
   #num_channels from dinov3-base: 768 (Same as dinov2-Base)
