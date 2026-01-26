@@ -28,6 +28,7 @@ class DINOv2(nn.Module):
         norm_layer (bool): If True, a normalization layer is applied in the forward pass.
         return_token (bool): If True, the forward pass returns both the feature map and the token.
     """
+    PATCH_SIZE: int = 14
     def __init__(
             self,
             model_name='dinov2_vitb14',

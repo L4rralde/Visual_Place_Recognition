@@ -10,6 +10,7 @@ _model_names = _URLS.keys()
 
 
 class DINOv3(nn.Module):
+    PATCH_SIZE: int = 16
     def __init__(
             self,
             model_name: str,
@@ -36,6 +37,7 @@ class DINOv3(nn.Module):
             source = 'local',
             weights = url
         )
+        assert self.PATCH_SIZE == self.model.patch_size, "Wrong PATCH_SIZE"
 
         self.num_channels = self.model.num_features
         self.num_trainable_blocks = num_trainable_blocks
