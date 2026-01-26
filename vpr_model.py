@@ -89,6 +89,28 @@ class VPRModel(pl.LightningModule):
 
         # For validation in Lightning v2.0.0
         self.val_outputs = []
+
+    @staticmethod
+    def from_lightning_log(path: str) -> "VPRModel":
+        log = utils.LightningLog(path)
+        model = VPRModel(
+            log.backbone_arch,
+            log.backbone_config,
+            log.agg_arch,
+            log.agg_config,
+            log.conf['lr'],
+            log.conf['optimizer'],
+            log.conf['weight_decay'],
+            log.conf['momentum'],
+            log.conf['lr_sched'],
+            log.conf['lr_sched_args'],
+            log.conf['loss_name'],
+            log.conf['miner_name'],
+            log.conf['miner_margin']
+        )
+        model.load_state_dict(log.state_dict)
+
+        return model
         
     # the forward pass of the lightning model
     def forward(self, x):
