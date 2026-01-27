@@ -22,9 +22,7 @@ from dataloaders.val.PittsburghDataset import PittsburghDataset
 from dataloaders.val.SPEDDataset import SPEDDataset
 
 
-#MSLS_Test not working
-#VAL_DATASETS = ['MSLS', 'MSLS_Test', 'pitts30k_test', 'pitts250k_test', 'Nordland', 'SPED']
-VAL_DATASETS = ['MSLS', 'pitts30k_test', 'pitts250k_test', 'Nordland', 'SPED']
+VAL_DATASETS = ['MSLS', 'MSLS_Test', 'pitts30k_test', 'pitts250k_test', 'Nordland', 'SPED']
 
 
 def get_val_dataset(dataset_name, transform):
@@ -93,6 +91,8 @@ def model_eval(
         if verbose:
             print('total_size', descriptors.shape[0], num_queries + num_references)
 
+        testing = isinstance(val_dataset, MSLSTest)
+
         preds = get_validation_recalls(
             r_list=r_list,
             q_list=q_list,
@@ -101,6 +101,7 @@ def model_eval(
             print_results=True,
             dataset_name=val_name,
             faiss_gpu=False,
+            testing=testing
         )
 
         del descriptors
@@ -108,4 +109,7 @@ def model_eval(
             print('========> DONE!\n\n')
 
         recalls[val_name] = preds
+        if testing:
+            pass #In dinov2+SALD code they save this preds. What for?
+
     return recalls
