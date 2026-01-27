@@ -30,7 +30,7 @@ class DepthAnything3Backbone(nn.Module):
         image: list[np.ndarray | Image.Image | str],
         extrinsics: np.ndarray | None = None,
         intrinsics: np.ndarray | None = None,
-        process_res: int = -1,
+        process_res: int = 504,
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -48,7 +48,7 @@ class DepthAnything3Backbone(nn.Module):
         image: list[np.ndarray | Image.Image | str],
         extrinsics: np.ndarray | None = None,
         intrinsics: np.ndarray | None = None,
-        process_res: int = -1,
+        process_res: int = 504,
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -59,6 +59,7 @@ class DepthAnything3Backbone(nn.Module):
         #           So, it's likely that those only affect preprocessing. And can't affect images at all.
         #Images are to be reshaped. Intrinsics need to be modified. Intrinsics shouldn't modify images...
         #   Extrinsics don't change at all, right?
+        assert process_res != -1 , "A valid value must be passed"
         imgs_cpu, extrinsics, intrinsics = self.da3._preprocess_inputs(
             image, extrinsics, intrinsics, process_res
         )
@@ -355,6 +356,6 @@ def intermediate_features(
 # [x] Write code (with out modifying depth anything source code) which takes depth anything outputs before alternate attention blocks (including cls tokens)
 # [x] Compare if results are the same. (one to one). Only if no resized is applied to input tensor
 # [x] Train SALAD with ViT-Base.
-# [ ] Adapt code to use other ViT confs.
+# [x] Adapt code to use other ViT confs.
 # [x] Double Check if patch tokens order remain constant. They do in the first release
 
