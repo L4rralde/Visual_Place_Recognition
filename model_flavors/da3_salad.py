@@ -52,15 +52,19 @@ class DA3Salad(nn.Module):
         #Predictions are two fold: da3 prediction output and global features from SALAD.
         # 1. Prepare input for da3
         image, extrinsics, intrinsics = self.backbone._prepare_inputs(x, extrinsics, intrinsics)
-
         if feat_layer == -1:
             feat_layer = self.backbone.dino_alt_start - 1
         assert feat_layer < self.backbone.dino_alt_start, "Double check what's the last layer before alternate attention"
 
         if process_res == -1:
-            H, W, _ = image[0].shape #FIXME. Error. image list may be a image of paths or a list of Image.Image. 
+            if isinstance(image[0], np.ndarray):
+                H, W, _ = image[0].shape #FIXME. Error. image list may be a image of paths or a list of Image.Image. 
                                         #Not always a np.ndarray.
                                         #By the moment process_res =-1 only when a list of ndarrays are passed
+            elif isinstance(image[0], Image.Image):
+                W, H = image[0].size
+            elif isinstance(image[0], str):
+                raise RuntimeError("Need to provide a valid process resolution if a list of paths is passsed")
             process_res = max(H, W)
 
         output = self.backbone.da3_inference(
