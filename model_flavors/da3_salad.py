@@ -109,6 +109,8 @@ class DA3Salad(nn.Module):
         )
         
         for k, v in output.items():
+            if not isinstance(v, torch.Tensor):
+                continue
             output[k] = v.squeeze(0).cpu().numpy()
         output['conf'] = output.pop('depth_conf')
         

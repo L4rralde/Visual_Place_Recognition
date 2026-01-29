@@ -210,6 +210,8 @@ class DepthAnything3Backbone(nn.Module):
                 output.aux = da3_model._extract_auxiliary_features(aux_feats, feat_layers, H, W)
                 output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
 
+        #Adding pre-processed images:
+        output = self.da3._add_processed_images(output, imgs_cpu)
         return output
     
     def _extract_cls_token(self, cls_token: list[torch.Tensor], feat_layers: list[int]) -> Dict[str, torch.Tensor]:
