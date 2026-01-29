@@ -26,6 +26,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from addict import Dict
 from loop_utils.alignment_torch import (
     apply_sim3_direct_torch,
     depth_to_point_cloud_optimized_torch,
@@ -201,7 +202,6 @@ class DA3_Streaming:
             self.loop_detector = LoopDetector(
                 image_dir=image_dir, output=loop_info_save_path, config=self.config
             )
-            self.loop_detector.load_model()
 
         print("init done.")
 
@@ -285,7 +285,7 @@ class DA3_Streaming:
 
                 #Ref_view_stragey is not included in the commit you're using
                 #predictions = self.model.inference(images, ref_view_strategy=ref_view_strategy)
-                predictions = self.model.inference(images)
+                predictions = self.model.inference(images, process_res=504)
 
                 predictions.depth = np.squeeze(predictions.depth)
                 predictions.conf -= 1.0
@@ -304,12 +304,12 @@ class DA3_Streaming:
         # Save predictions to disk instead of keeping in memory
         if is_loop:
             save_dir = self.result_loop_dir
-            filename = f"loop_{range_1[0]}_{range_1[1]}_{range_2[0]}_{range_2[1]}.npy"
+            filename = f"loop_{range_1[0]}_{range_1[1]}_{range_2[0]}_{range_2[1]}"
         else:
             if chunk_idx is None:
                 raise ValueError("chunk_idx must be provided when is_loop is False")
             save_dir = self.result_unaligned_dir
-            filename = f"chunk_{chunk_idx}.npy"
+            filename = f"chunk_{chunk_idx}"
 
         save_path = os.path.join(save_dir, filename)
 
@@ -320,7 +320,7 @@ class DA3_Streaming:
             self.all_camera_poses.append((chunk_range, extrinsics))
             self.all_camera_intrinsics.append((chunk_range, intrinsics))
 
-        np.save(save_path, predictions)
+        np.savez(save_path, **predictions)
 
         return predictions
 
@@ -413,9 +413,10 @@ class DA3_Streaming:
             print(chunk_a_range)
             print(chunk_a_rela_begin, chunk_a_rela_end)
             chunk_data_a = np.load(
-                os.path.join(self.result_unaligned_dir, f"chunk_{chunk_idx_a}.npy"),
+                os.path.join(self.result_unaligned_dir, f"chunk_{chunk_idx_a}.npz"),
                 allow_pickle=True,
-            ).item()
+            ).items()
+            chunk_data_a = Dict(chunk_data_a)
 
             point_map_a = depth_to_point_cloud_vectorized(
                 chunk_data_a.depth, chunk_data_a.intrinsics, chunk_data_a.extrinsics
@@ -455,9 +456,10 @@ class DA3_Streaming:
             print(chunk_b_range)
             print(chunk_b_rela_begin, chunk_b_rela_end)
             chunk_data_b = np.load(
-                os.path.join(self.result_unaligned_dir, f"chunk_{chunk_idx_b}.npy"),
+                os.path.join(self.result_unaligned_dir, f"chunk_{chunk_idx_b}.npz"),
                 allow_pickle=True,
-            ).item()
+            ).items()
+            chunk_data_b = Dict(chunk_data_b)
 
             point_map_b = depth_to_point_cloud_vectorized(
                 chunk_data_b.depth, chunk_data_b.intrinsics, chunk_data_b.extrinsics
@@ -649,9 +651,10 @@ class DA3_Streaming:
             s, R, t = self.sim3_list[chunk_idx]
 
             chunk_data = np.load(
-                os.path.join(self.result_unaligned_dir, f"chunk_{chunk_idx+1}.npy"),
+                os.path.join(self.result_unaligned_dir, f"chunk_{chunk_idx+1}.npz"),
                 allow_pickle=True,
-            ).item()
+            ).items()
+            chunk_data = Dict(chunk_data)
 
             aligned_chunk_data = {}
 
@@ -665,14 +668,15 @@ class DA3_Streaming:
             aligned_chunk_data["conf"] = chunk_data.conf
             aligned_chunk_data["images"] = chunk_data.processed_images
 
-            aligned_path = os.path.join(self.result_aligned_dir, f"chunk_{chunk_idx+1}.npy")
-            np.save(aligned_path, aligned_chunk_data)
+            aligned_path = os.path.join(self.result_aligned_dir, f"chunk_{chunk_idx+1}.npz")
+            np.savez(aligned_path, **aligned_chunk_data)
 
             if chunk_idx == 0:
                 chunk_data_first = np.load(
-                    os.path.join(self.result_unaligned_dir, "chunk_0.npy"), allow_pickle=True
-                ).item()
-                np.save(os.path.join(self.result_aligned_dir, "chunk_0.npy"), chunk_data_first)
+                    os.path.join(self.result_unaligned_dir, "chunk_0.npz"), allow_pickle=True
+                ).items()
+                chunk_data_first = Dict(chunk_data_first)
+                np.savez(os.path.join(self.result_aligned_dir, "chunk_0.npz"), **chunk_data_first)
                 points_first = depth_to_point_cloud_vectorized(
                     chunk_data_first.depth,
                     chunk_data_first.intrinsics,
@@ -877,7 +881,7 @@ class DA3_Streaming:
 
         print(f"Saved disk space: {total_space/1024/1024/1024:.4f} GiB")
 
-    def register_descriptors(self, img_paths: List[str], predictions: Dict[np.ndarray]) -> None:
+    def register_descriptors(self, img_paths: List[str], predictions: Dict[str, np.ndarray]) -> None:
         for path, descriptor in zip(img_paths, predictions.descriptor):
             fname = os.path.basename(path)
             path = os.path.join(
