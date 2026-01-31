@@ -18,12 +18,21 @@ from depth_anything_3.model.da3 import DepthAnything3Net
 #FOR COMPARISON
 #save_dir = '/media/emmanuel/nvme_storage/da3_salad_data'
 
+def da3_from_pretained(model_name: str, **kwargs) -> DepthAnything3:
+    return DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
+
 
 class DepthAnything3Backbone(nn.Module):
     PATCH_SIZE: int = 14
-    def __init__(self, model_name: str = "da3-base", **kwargs):
+    def __init__(self, da3: DepthAnything3):
         super().__init__()
-        self.da3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
+        self.da3: DepthAnything3 = da3
+        self.dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
+
+    @staticmethod
+    def from_pretrained(model_name: str = "da3-base", **kwargs) -> "DepthAnything3Backbone":
+        da3: DepthAnything3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
+        return DepthAnything3Backbone(da3)
 
     def forward(
         self,
@@ -162,7 +171,7 @@ class DepthAnything3Backbone(nn.Module):
                 camera_tokens = [out[0] for out in outputs]
                 if outputs[0][1].shape[-1] == dino.embed_dim:
                     outputs = [dino.norm(out[1]) for out in outputs]
-                elif outputs[0][1].shape[-1] == (dino.embed_dim * 2): #Idk why feature dim can be doubled, but one is normalized.
+                elif outputs[0][1].shape[-1] == (dino.embed_dim * 2): #Idk why feature dim can be doubled, but one is normalized. I think its because features and last local features are passed
                     outputs = [
                         torch.cat(
                             [out[1][..., : dino.embed_dim], dino.norm(out[1][..., dino.embed_dim :])],
@@ -211,7 +220,214 @@ class DepthAnything3Backbone(nn.Module):
                 output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
 
         return output
-    
+
+    def _dino_attend(self, x, export_feat_layers=[], **kwargs):
+        assert self.dino.alt_start != -1, "Alternate start needed"
+        assert isinstance(x, torch.Tensor), "Expected input of type tensor"
+        B, S, _, H, W = x.shape
+        x = self.dino.prepare_tokens_with_masks(x)
+        aux_output = []
+        pos, pos_nodiff = self.dino._prepare_rope(B, S, H, W, x.device)
+
+        for i, blk in enumerate(self.dino.blocks):
+            if i == self.dino.alt_start:
+                break
+            if i < self.dino.rope_start or self.rope is None:
+                g_pos, l_pos = None, None
+            else:
+                g_pos = pos_nodiff
+                l_pos = pos
+            x = self.dino.process_attention(x, blk, 'local', pos=l_pos)
+
+            if i in export_feat_layers:
+                aux_output.append(x)
+        return x, aux_output, l_pos, g_pos
+
+    def _alt_attend(self, x, n=1, export_feat_layers=[], **kwargs):
+        #l_pos, g_pos, are they constants one it is calculated first?
+        B, S, _, H, W = x.shape
+        output, total_block_len, aux_output = [], len(self.blocks), []
+        blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
+        pos, pos_nodiff = self._prepare_rope(B, S, H, W, x.device)
+
+        for i, blk in enumerate(self.dino.blocks):
+            if i < self.dino.alt_start:
+                if i in blocks_to_take:
+                    raise RuntimeError(f"Feature from layer {i} is missing. List to take: {n}")
+                continue
+            if i < self.dino.rope_start or self.dino.rope is None:
+                g_pos, l_pos = None, None
+            else:
+                g_pos = pos_nodiff
+                l_pos = pos
+            if self.dino.alt_start != -1 and i ==self.dino.alt_start:
+                if kwargs.get("cam_token", None) is not None:
+                    cam_token = kwargs.get("cam_token")
+                else:
+                    ref_token = self.dino.camera_token[:, :1].expand(B, -1, -1)
+                    src_token = self.dino.camera_token[:, 1:].expand(B, S - 1, -1)
+                    cam_token = torch.cat([ref_token, src_token], dim = 1)
+                x[:, :, 0] = cam_token
+            
+            if self.dino.alt_start != -1 and i >= self.dino.alt_start and i % 2 == 1:
+                x = self.dino.process_attention(
+                    x, blk, "global", pos=g_pos, attn_mask=kwargs.get("attn_mask", None)
+                )
+            else:
+                x = self.dino.process_attention(x, blk, "local", pos=l_pos)
+                local_x = x
+            
+            if i in blocks_to_take:
+                out_x = torch.cat([local_x, x], dim=-1) if self.cat_token else x
+                output.append((out_x[:, :, 0], out_x))
+            if i in export_feat_layers:
+                aux_output.append(x)
+        return output, aux_output
+
+    def _get_intermediate_layers_not_chunked(self, x, n=1, export_feat_layers=[], **kwargs):
+        x, aux_output_bf_alt, l_pos, g_pos = self._dino_attend(x, export_feat_layers, **kwargs)
+        output, aux_output_af_alt = self._alt_attend(x, n, export_feat_layers, **kwargs)
+        
+        aux_output = aux_output_bf_alt + aux_output_af_alt
+        return output, aux_output
+
+    def dino_only_inference(
+        self,
+        image: list[np.ndarray | Image.Image | str],
+        extrinsics: np.ndarray | None = None,
+        intrinsics: np.ndarray | None = None,
+        process_res: int = 504,
+        export_feat_layers: Sequence[int] | None = None,
+        **kwargs
+    ) -> Dict[str, torch.Tensor]:
+        #FUTURE. What role do the extrinsics and intrinsics play before alternate attention blocks?
+        # Answer: Preprocess images, later, only if BOTH are passed, cls tokens are replaced by a 
+        #           cam_token built upon intrinsics and extrinsics. Otherwise, class tokens are replaced
+        #           by a(one?) trainble cam_token(s?).
+        #           So, it's likely that those only affect preprocessing. And can't affect images at all.
+        #Images are to be reshaped. Intrinsics need to be modified. Intrinsics shouldn't modify images...
+        #   Extrinsics don't change at all, right?
+        assert process_res != -1 , "A valid value must be passed"
+        imgs_cpu, extrinsics, intrinsics = self.da3._preprocess_inputs(
+            image, extrinsics, intrinsics, process_res
+        )
+
+        #FOR COMPARISON
+        #imgs_preprocessed = imgs_cpu.cpu().numpy()
+        #np.save(
+        #    os.path.join(save_dir, 'imgs_preprocessed.npy'),
+        #    imgs_preprocessed
+        #)
+
+        # Prepare tensors for model
+        #This basically does: .to(device, non_blocking=True)[None].float() for each input
+        imgs, ex_t, in_t = self.da3._prepare_model_inputs(imgs_cpu, extrinsics, intrinsics)
+
+        #FOR COMPARISON
+        #imgs_prepared = imgs.cpu().numpy()
+        #np.save(
+        #    os.path.join(save_dir, 'imgs_prepared.npy'),
+        #    imgs_prepared
+        #)
+
+        # Normalize extrinsics
+        # If ext_t is None, returns None.
+        ex_t_norm = self.da3._normalize_extrinsics(ex_t.clone() if ex_t is not None else None)
+
+        # Run model forward pass
+
+        #raw_output = self.da3._run_model_forward(
+        #    imgs, ex_t_norm, in_t, export_feat_layers
+        #)
+        
+        #Run model forward def
+        feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
+        #output = self.da3.forward(imgs, ex_t, in_t, feat_layers)
+
+        #def forward def
+        autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        with torch.no_grad():
+            with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
+                #return self.da3.model(
+                #    image, extrinsics, intrinsics, export_feat_layers
+                #) #Returns a Prediction class object
+            
+                #Model forward def
+                if ex_t_norm is not None:
+                    with torch.autocast(device_type=imgs.device.type, enabled=False):
+                        cam_token = self.da3.model.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
+                else:
+                    cam_token = None
+            
+                #feats, aux_feats = self.backbone(
+                #    x, cam_token=cam_token, export_feat_layers=export_feat_layers, ref_view_strategy=ref_view_strategy
+                #)
+                #H, W = x.shape[-2], x.shape[-1]
+
+                #Creates a dictionary. Key is the extra layer, value are reshaped tokens without cls tokens.
+                #output.aux = self._extract_auxiliary_features(aux_feats, export_feat_layers, H, W)
+
+                #self.backbone.forward def
+
+                #return self.pretrained.get_intermediate_layers(
+                #    x,
+                #    self.out_layers, #Out layers: n=1. Take the last layer
+                #    **kwargs,
+                #)#Here, the magic happens:
+            
+                #self.bakcbone.pretrained(dino).get_intermediate_layers def:
+
+                #outputs, aux_outputs = self.da3.model.backbone.pretrained._get_intermediate_layers_not_chunked(
+                #    x, n, export_feat_layers=export_feat_layers, **kwargs
+                #)
+                #camera_tokens = [out[0] for out in outputs]
+                #if outputs[0][1].shape[-1] == self.embed_dim: #Idk y last dim could be self.embed_dim * 2. One way or the other, It doesnt matter since I only care about auxiliar layers.
+                #    outputs = [self.norm(out[1]) for out in outputs]
+                #elif outputs[0][1].shape[-1] == (self.embed_dim * 2):
+                #    outputs = [
+                #        torch.cat(
+                #            [out[1][..., : self.embed_dim], self.norm(out[1][..., self.embed_dim :])],
+                #            dim=-1,
+                #        )
+                #        for out in outputs
+                #    ]
+                #else:
+                #    raise ValueError(f"Invalid output shape: {outputs[0][1].shape}")
+                #aux_outputs = [self.norm(out) for out in aux_outputs] #We want to take this outputs (with the class tokens)
+                #outputs = [out[..., 1 + self.num_register_tokens :, :] for out in outputs]
+                #aux_outputs = [out[..., 1 + self.num_register_tokens :, :] for out in aux_outputs] #Here, cls tokens are dropped :(
+                #return tuple(zip(outputs, camera_tokens)), aux_outputs
+
+                # self.bakcbone.pretrained(dino)._get_intermediate_layers_not_chunked def
+                #Let x be a batch of sequences. x.shape = (batch_size, sequence len, channels, height, width)
+                _, aux_outputs, _, _ = self._dino_attend(
+                    imgs,
+                    feat_layers,
+                    cam_token=cam_token
+                )
+                aux_outputs = [self.dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
+                
+                #Extra line of code
+                cls_outputs = [out[..., 0, :] for out in aux_outputs]
+                aux_outputs = [out[..., 1 + self.dino.num_register_tokens :, :] for out in aux_outputs]
+
+                aux_feats = aux_outputs
+                cls_token = cls_outputs
+
+                H, W = imgs.shape[-2], imgs.shape[-1]
+
+                da3_model: DepthAnything3Net = self.da3.model
+                output = Dict()
+
+                #Reshapes aux features of the given list of layers.
+                #Each layer's aux features is reshped to Batch_size, sequence, num_vertical_patches, num horizontal patches, embed dim
+                #Each layer's acx features is resotred in a dict, e.g. f"feat_layer_{feat_layer}"
+                #output.aux is a dictionary 
+                output.aux = da3_model._extract_auxiliary_features(aux_feats, feat_layers, H, W)
+                output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
+
+        return output
+
     def _extract_cls_token(self, cls_token: list[torch.Tensor], feat_layers: list[int]) -> Dict[str, torch.Tensor]:
         aux_cls = Dict()
         assert len(cls_token) == len(feat_layers), "Expected a set of cls tokens per layer to extract"
@@ -223,16 +439,27 @@ class DepthAnything3Backbone(nn.Module):
 
 
 class DepthAnything3Dino(DepthAnything3Backbone):
-    def __init__(self, model_name: str = "da3-base", return_token: bool=False, **kwargs):
-        super().__init__(model_name, **kwargs)
+    def __init__(
+        self,
+        da3: DepthAnything3,
+        return_token: bool=False,
+        training_salad: bool=False,
+        **kwargs
+    ):
+        super().__init__(da3, **kwargs)
         self.return_token = return_token
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
         if 'norm_layer' in kwargs:
             print("norm_layer argument flag is not supported for da3. DA3 is used as is")
-        dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
-        self.num_channels = dino.num_features
-        self.dino_alt_start = dino.alt_start
+        self.training_salad = training_salad
+        self.num_channels = self.dino.num_features
+        self.dino_alt_start = self.dino.alt_start
+
+    @staticmethod
+    def from_pretrained(model_name: str = "da3-base", return_token: bool=False, **kwargs) -> "DepthAnything3Dino":
+        da3: DepthAnything3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
+        return DepthAnything3Dino(da3, return_token, **kwargs)
 
     def forward(
         self,
@@ -254,10 +481,16 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             H, W, _ = image[0].shape
             process_res = max(H, W)
 
-        output = self.da3_inference(
-            image, extrinsics, intrinsics, process_res,
-            export_feat_layers=[feat_layer], **kwargs
-        )
+        if self.training_salad:
+            output = self.dino_only_inference(
+                image, extrinsics, intrinsics, process_res,
+                export_feat_layers=[feat_layer], **kwargs
+            )
+        else:
+            output = self.da3_inference(
+                image, extrinsics, intrinsics, process_res,
+                export_feat_layers=[feat_layer], **kwargs
+            )
 
         #PATCH_SIZE = 14 (same in DINOv2)
         #Image resizing. Upper resize. Resize to 504.
