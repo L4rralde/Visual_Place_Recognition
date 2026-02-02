@@ -1,3 +1,6 @@
+from typing import Tuple, Callable
+
+from torchvision import transforms as T
 from PIL import Image
 import torch
 
@@ -8,11 +11,14 @@ import torch
 
 
 class VggtTransform:
-    def __init__(self, img_size: int=518) -> None:
+    def __init__(self, img_size: int=518, mode: str="crop") -> None:
         self.img_size = img_size
-        assert self.img_size == 518, "I think it won't work with another size"
+        self.mode = mode
+        #assert self.img_size == 518, "I think it won't work with another size"
 
-    def __call__(self, img: Image.Image, mode: str="crop") -> Image.Image:
+    def __call__(self, img: Image.Image, mode: str|None = None) -> Image.Image:
+        if mode is None:
+            mode = self.mode
         target_size = self.img_size
         # If there's an alpha channel, blend onto white background:
         if img.mode == "RGBA":
@@ -97,3 +103,19 @@ class VggtTransform:
         images = torch.stack(images)  # concatenate images
 
 
+def get_transforms(input_config: dict) -> Tuple[Callable]:
+    img_size = input_config.get('img_size', 518)
+    mode = input_config.get('mode', 'crop')
+    resize = VggtTransform(img_size, mode)
+
+    train_transform = T.Compose([
+        resize, #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
+        T.RandAugment(num_ops=3, interpolation=T.InterpolationMode.BILINEAR),
+        T.ToTensor(),
+    ])
+    valid_transform = T.Compose([
+        resize, #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
+        T.ToTensor(),
+    ])
+
+    return train_transform, valid_transform

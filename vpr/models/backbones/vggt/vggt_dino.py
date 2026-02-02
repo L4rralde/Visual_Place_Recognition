@@ -4,7 +4,10 @@ import gc
 import torch
 import torch.nn as nn
 
+import os, sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from vggt.models.vggt import VGGT
+from vggt.models.aggregator import slice_expand_and_flatten
 from vggt.utils.load_fn import load_and_preprocess_images
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
@@ -28,7 +31,7 @@ class VggtDino(nn.Module):
         self.num_channels = None #TODO
 
     @staticmethod
-    def from_pretrained(self, **kwargs) -> "VggtDino":
+    def from_pretrained(**kwargs) -> "VggtDino":
         vggt = VGGT()
         _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
         vggt.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
@@ -36,7 +39,7 @@ class VggtDino(nn.Module):
 
     def inference(self, img_path_list: List[str]) -> dict:
         assert torch.cuda.is_available(), "Sadly, only works with cuda"
-        DEVICE = torch.device("cuda")
+        DEVICE = "cuda"
         gc.collect() #Collect garbage
         torch.cuda.empty_cache()
 
@@ -60,8 +63,125 @@ class VggtDino(nn.Module):
 
         return predictions
 
+    def dino_forward(self, images: torch.Tensor) -> torch.Tensor:
+        if len(images.shape) == 4:
+            images = images.unsqueeze(0)
+
+        B, S, C_in, H, W = images.shape
+
+        if C_in != 3:
+            raise ValueError(f"Expected 3 input channels, got {C_in}")
+
+        # Normalize images and reshape for patch embed
+        images = (images - self.vggt.aggregator._resnet_mean) / self.vggt.aggregator._resnet_std
+
+        # Reshape to [B*S, C, H, W] for patch embedding
+        images = images.view(B * S, C_in, H, W)
+        patch_tokens = self.vggt.aggregator.patch_embed(images) #This is all we need.
+
+        return patch_tokens
+
+    def alternate_attention(self, images: torch.Tensor, patch_tokens: torch.Tensor) -> tuple:
+        B, S, C_in, H, W = images.shape
+        if C_in != 3:
+            raise ValueError(f"Expected 3 input channels, got {C_in}")
+
+        _, P, C = patch_tokens.shape
+
+        # Expand camera and register tokens to match batch size and sequence length
+        camera_token = slice_expand_and_flatten(self.vggt.aggregator.camera_token, B, S)
+        register_token = slice_expand_and_flatten(self.vggt.aggregator.register_token, B, S)
+
+        # Concatenate special tokens with patch tokens
+        tokens = torch.cat([camera_token, register_token, patch_tokens], dim=1)
+
+        pos = None
+        if self.vggt.aggregator.rope is not None:
+            pos = self.vggt.aggregator.position_getter(
+                B * S,
+                H // self.vggt.aggregator.patch_size,
+                W // self.vggt.aggregator.patch_size,
+                device=images.device
+            )
+
+        if self.vggt.aggregator.patch_start_idx > 0:
+            # do not use position embedding for special tokens (camera and register tokens)
+            # so set pos to 0 for the special tokens
+            pos = pos + 1
+            pos_special = torch.zeros(B * S, self.vggt.aggregator.patch_start_idx, 2).to(images.device).to(pos.dtype)
+            pos = torch.cat([pos_special, pos], dim=1)
+
+        # update P because we added special tokens
+        _, P, C = tokens.shape
+
+        frame_idx = 0
+        global_idx = 0
+        output_list = []
+
+        for _ in range(self.vggt.aggregator.aa_block_num):
+            for attn_type in self.vggt.aggregator.aa_order:
+                if attn_type == "frame":
+                    tokens, frame_idx, frame_intermediates = self.vggt.aggregator._process_frame_attention(
+                        tokens, B, S, P, C, frame_idx, pos=pos
+                    )
+                elif attn_type == "global":
+                    tokens, global_idx, global_intermediates = self.vggt.aggregator._process_global_attention(
+                        tokens, B, S, P, C, global_idx, pos=pos
+                    )
+                else:
+                    raise ValueError(f"Unknown attention type: {attn_type}")
+
+            for i in range(len(frame_intermediates)):
+                # concat frame and global intermediates, [B x S x P x 2C]
+                concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
+                output_list.append(concat_inter)
+
+        del concat_inter
+        del frame_intermediates
+        del global_intermediates
+        return output_list, self.vggt.aggregator.patch_start_idx
+
+    def heads_forward(self, images: torch.Tensor, aggregated_tokens_list: List[torch.Tensor], patch_start_idx: int, query_points:torch.Tensor) -> Dict[str, torch.Tensor]:
+        if query_points is not None and len(query_points.shape) == 2:
+            query_points = query_points.unsqueeze(0)
+
+        predictions = {}
+
+        with torch.cuda.amp.autocast(enabled=False):
+            if self.vggt.camera_head is not None:
+                pose_enc_list = self.vggt.camera_head(aggregated_tokens_list)
+                predictions["pose_enc"] = pose_enc_list[-1]  # pose encoding of the last iteration
+                predictions["pose_enc_list"] = pose_enc_list
+                
+            if self.vggt.depth_head is not None:
+                depth, depth_conf = self.vggt.depth_head(
+                    aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
+                )
+                predictions["depth"] = depth
+                predictions["depth_conf"] = depth_conf
+
+            if self.vggt.point_head is not None:
+                pts3d, pts3d_conf = self.vggt.point_head(
+                    aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
+                )
+                predictions["world_points"] = pts3d
+                predictions["world_points_conf"] = pts3d_conf
+
+        if self.vggt.track_head is not None and query_points is not None:
+            track_list, vis, conf = self.vggt.track_head(
+                aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx, query_points=query_points
+            )
+            predictions["track"] = track_list[-1]  # track of the last iteration
+            predictions["vis"] = vis
+            predictions["conf"] = conf
+
+        if not self.training:
+            predictions["images"] = images  # store the images for visualization during inference
+
+        return predictions
+
     #complete forward
-    def forward(self, images: torch.Tensor, query_points: torch.Tensor = None) -> Dict[str, torch.Tensor]:
+    def _forward(self, images: torch.Tensor, query_points: torch.Tensor = None) -> Dict[str, torch.Tensor]:
         """
         Forward pass of the VGGT model.
 
@@ -146,7 +266,7 @@ class VggtDino(nn.Module):
             raise ValueError(f"Expected 3 input channels, got {C_in}")
 
         # Normalize images and reshape for patch embed
-        images = (images - self._resnet_mean) / self._resnet_std
+        images = (images - self.vggt.aggregator._resnet_mean) / self.vggt.aggregator._resnet_std
 
         # Reshape to [B*S, C, H, W] for patch embedding
         images = images.view(B * S, C_in, H, W)
@@ -183,7 +303,7 @@ class VggtDino(nn.Module):
         output_list = []
 
         for _ in range(self.aa_block_num):
-            for attn_type in self.aa_order:
+            for attn_type in self.vggt.aggregator.aa_order:
                 if attn_type == "frame":
                     tokens, frame_idx, frame_intermediates = self._process_frame_attention(
                         tokens, B, S, P, C, frame_idx, pos=pos
@@ -205,12 +325,15 @@ class VggtDino(nn.Module):
         del global_intermediates
         return output_list, self.patch_start_idx
 
-    def three_step_forward(self, images: torch.Tensor, query_points: torch.Tensor = None) -> Dict[str, torch.Tensor]:
+    def forward(self, images: torch.Tensor, query_points: torch.Tensor = None) -> Dict[str, torch.Tensor]:
         if len(images.shape) == 4:
             images = images.unsqueeze(0)
         
         patch_tokens = self.dino_forward(images)
-        aggregated_tokens_list, patch_start_idx = self.alternate_attend(images, patch_tokens)
+        if isinstance(patch_tokens, dict):
+            patch_tokens = patch_tokens["x_norm_patchtokens"]
+
+        aggregated_tokens_list, patch_start_idx = self.alternate_attention(images, patch_tokens)
         predictions = self.heads_forward(images, aggregated_tokens_list, patch_start_idx, query_points)
 
         return predictions
