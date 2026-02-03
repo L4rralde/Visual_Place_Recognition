@@ -106,7 +106,13 @@ class VggtTransform:
 def get_transforms(input_config: dict) -> Tuple[Callable]:
     img_size = input_config.get('img_size', 518)
     mode = input_config.get('mode', 'crop')
-    resize = VggtTransform(img_size, mode)
+    if isinstance(img_size, int):
+        resize = VggtTransform(img_size, mode)
+    elif isinstance(img_size, list) and len(img_size) == 2:
+        #same in dino
+        resize = T.Resize(img_size, interpolation=T.InterpolationMode.BILINEAR)
+    else:
+        raise ValueError(f"Unexpected format for img_size: {img_size}")
 
     train_transform = T.Compose([
         resize, #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1

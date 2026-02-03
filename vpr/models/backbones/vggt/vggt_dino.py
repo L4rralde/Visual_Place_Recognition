@@ -12,7 +12,22 @@ from vggt.utils.load_fn import load_and_preprocess_images
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
 
+
+def load_vggt_state_dict():
+    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
+    state_dict = torch.hub.load_state_dict_from_url(_URL, map_location='cpu')
+    return state_dict
+
+
+def load_pretrained_vggt():
+    vggt = VGGT()
+    state_dict = load_vggt_state_dict()
+    vggt.load_state_dict(state_dict)
+    return vggt
+
+
 class VggtBackbone(nn.Module):
+    PATCH_SIZE = 14
     def __init__(
         self,
         vggt: VGGT,
@@ -40,9 +55,7 @@ class VggtBackbone(nn.Module):
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtBackbone":
-        vggt = VGGT()
-        _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-        vggt.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+        vggt = load_pretrained_vggt()
         return VggtBackbone(vggt, **kwargs)
 
     def inference(self, img_path_list: List[str]) -> dict:
@@ -210,8 +223,7 @@ class VggtDino(VggtBackbone):
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtDino":
         vggt = VGGT()        
-        _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-        full_state = torch.hub.load_state_dict_from_url(_URL, map_location='cpu')
+        full_state = load_vggt_state_dict()
 
         # Filter weights: Keep ONLY the dino parts
         # This assumes the prefix in the state_dict matches the module structure
