@@ -1,0 +1,88 @@
+from typing import List, Dict
+import gc
+
+import torch
+import torch.nn as nn
+import numpy as np
+
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from vpr.models.backbones.vggt import VggtDino, load_pretrained_vggt
+from vpr.models import SALAD
+from utils import LightningLog
+from submodules.vggt.vggt.utils.load_fn import load_and_preprocess_images
+from submodules.vggt.vggt.utils.pose_enc import pose_encoding_to_extri_intri
+
+
+class VggtSalad(nn.Module):
+    def __init__(
+        self,
+        backbone_arch: str="vggt",
+        backbone_args: dict={},
+        agg_args: dict={}
+    ) -> None:
+        super().__init__()
+        vggt = load_pretrained_vggt()
+        self.backbone = VggtDino(vggt, **backbone_args)
+        self.aggregator = SALAD(
+            num_channels=self.backbone.num_channels,
+            **agg_args
+        )
+
+    @staticmethod
+    def from_lightning_log(path: str) -> "VggtSalad":
+        log = LightningLog(path)
+        assert log.agg_arch == "SALAD", "By the moment only SALAD is supported"
+        model = VggtSalad(
+            log.backbone_arch,
+            log.backbone_config,
+            log.agg_config
+        )
+        model.load_state_dict(log.state_dict)
+
+        return model
+    
+    def forward(self, images: torch.Tensor, query_points: torch.Tensor = None) -> Dict[str, torch.Tensor]:
+        if len(images.shape) == 4:
+            images = images.unsqueeze(0)
+        
+        patch_tokens = self.backbone.dino_forward(images)
+        feats, cls = self.backbone.prepare_tokens_for_salad(patch_tokens, images.shape)
+        global_descriptor = self.aggregator((feats, cls))
+
+        if isinstance(patch_tokens, dict):
+            patch_tokens = patch_tokens["x_norm_patchtokens"]
+
+        aggregated_tokens_list, patch_start_idx = self.backbone.alternate_attention(images, patch_tokens)
+        predictions = self.backbone.heads_forward(images, aggregated_tokens_list, patch_start_idx, query_points)
+        predictions['descriptor'] = global_descriptor
+
+        return predictions
+
+    def inference(self, img_path_list: List[str]) -> Dict[np.ndarray]:
+        assert torch.cuda.is_available(), "Only works with cuda"
+        DEVICE = "cuda"
+        gc.collec()
+        torch.cuda.empty_cache()
+
+        images = load_and_preprocess_images(img_path_list).to(DEVICE)
+
+        dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+        with torch.no_grad():
+            with torch.amp.autocast(DEVICE, dtype=dtype):
+                predictions = self.forward(images)
+
+        extrinsic, intrinsic = pose_encoding_to_extri_intri(
+            predictions["pose_enc"],
+            images.shape[-2:]
+        )
+        predictions["extrinsic"] = extrinsic
+        predictions["intrinsic"] = intrinsic
+
+        torch.cuda.empty_cache()
+
+        for key, value in predictions.items():
+            if isinstance(value, torch.Tensor):
+                predictions[key] = value.cpu().numpy().squeeze(0)
+
+        return predictions
