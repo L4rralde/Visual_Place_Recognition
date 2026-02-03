@@ -265,7 +265,6 @@ class DepthAnything3Backbone(nn.Module):
                         cam_token = self.da3.model.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
                 else:
                     cam_token = None
-
                 _, aux_outputs, _, _ = self._dino_attend(
                     imgs,
                     feat_layers,
