@@ -1,2 +1,7 @@
 __pycache__
 logs
+Untitled*
+.ipynb_checkpoints
+*.npz
+exps
+*.log
