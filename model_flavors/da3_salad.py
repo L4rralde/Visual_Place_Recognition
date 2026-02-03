@@ -1,4 +1,5 @@
 from typing import List, Dict
+import gc
 
 from PIL import Image
 import torch
@@ -115,6 +116,13 @@ class DA3Salad(nn.Module):
             if not isinstance(v, torch.Tensor):
                 continue
             output[k] = v.squeeze(0).cpu().numpy()
+            del v
+            gc.collect()
+        torch.cuda.empty_cache()
+
+
         output['conf'] = output.pop('depth_conf')
+
+
         
         return output
