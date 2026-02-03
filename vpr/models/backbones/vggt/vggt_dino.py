@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import gc
 
 import torch
@@ -12,10 +12,6 @@ from vggt.utils.load_fn import load_and_preprocess_images
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
 
-import torch
-import torch.nn as nn
-import gc
-
 class VggtBackbone(nn.Module):
     def __init__(
         self,
@@ -26,9 +22,11 @@ class VggtBackbone(nn.Module):
         # 1. DO NOT do self.vggt = vggt. That keeps the whole model alive.
         
         if 'num_trainable_blocks' in kwargs:
-            print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
+            print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         if 'norm_layer' in kwargs:
-            print("norm_layer argument flag is not supported for da3. DA3 is used as is")
+            #FUTURE
+            print("norm_layer argument flag is not supported for da3. VGGT is used as is")
+            print("FUTURE. But this argument can be implemented in the future")
 
         # 2. Extract only the specific submodule and attributes you need
         self.num_channels = vggt.aggregator.patch_embed.embed_dim
@@ -42,38 +40,10 @@ class VggtBackbone(nn.Module):
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtBackbone":
-        # Initialize the model structure on CPU (cheap)
         vggt = VGGT()
-        
         _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-        
-        # 4. Load state dict to CPU specifically
-        # This prevents VRAM spikes during the download/load phase
-        full_state = torch.hub.load_state_dict_from_url(_URL, map_location='cpu')
-
-        # 5. Filter weights: Keep ONLY the dino parts
-        # This assumes the prefix in the state_dict matches the module structure
-        prefix = "aggregator.patch_embed."
-        dino_state = {k: v for k, v in full_state.items() if k.startswith(prefix)}
-        
-        # Free the huge full_state dictionary immediately
-        del full_state
-        gc.collect() 
-        
-        # 6. Load strictly the filtered weights
-        # We must use strict=False because we are intentionally missing the rest of the model
-        keys = vggt.load_state_dict(dino_state, strict=False)
-        print(f"VRAM Optimization: Loaded only {len(dino_state)} keys. Discarded the rest.")
-
-        # Create the backbone
-        backbone = VggtBackbone(vggt, **kwargs)
-        
-        # 7. Final Cleanup
-        del vggt
-        del dino_state
-        gc.collect()
-        
-        return backbone
+        vggt.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+        return VggtBackbone(vggt, **kwargs)
 
     def inference(self, img_path_list: List[str]) -> dict:
         assert torch.cuda.is_available(), "Sadly, only works with cuda"
@@ -233,12 +203,39 @@ class VggtBackbone(nn.Module):
 
 
 class VggtDino(VggtBackbone):
+    def __init__(self, vggt: VGGT, norm_layer: bool=True, **kwargs):
+        super().__init__(vggt, **kwargs)
+        self.norm_layer = norm_layer
+
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtDino":
-        vggt = VGGT()
+        vggt = VGGT()        
         _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-        vggt.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
-        return VggtDino(vggt, **kwargs)
+        full_state = torch.hub.load_state_dict_from_url(_URL, map_location='cpu')
+
+        # Filter weights: Keep ONLY the dino parts
+        # This assumes the prefix in the state_dict matches the module structure
+        prefix = "aggregator.patch_embed."
+        dino_state = {k: v for k, v in full_state.items() if k.startswith(prefix)}
+        
+        # Free the huge full_state dictionary immediately
+        del full_state
+        gc.collect() 
+        
+        # Load strictly the filtered weights
+        # We must use strict=False because we are intentionally missing the rest of the model
+        keys = vggt.load_state_dict(dino_state, strict=False)
+        #print(f"VRAM Optimization: Loaded only {len(dino_state)} keys. Discarded the rest.")
+
+        # Create the backbone
+        backbone = VggtDino(vggt, **kwargs)
+        
+        # Final Cleanup
+        del vggt
+        del dino_state
+        gc.collect()
+        
+        return backbone
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         if len(images.shape) == 4:
@@ -251,9 +248,19 @@ class VggtDino(VggtBackbone):
         
         #x_norm_patchtokens shape = B*S, Total patches, channles
         #x_norm_clstoken shape: B*S, channles
-        f = patch_tokens['x_norm_patchtokens']
-        f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
-        t = patch_tokens['x_norm_clstoken']
+        f, t = self.prepare_tokens_for_salad(patch_tokens, (B, S, C_in, H, W))
 
         return f, t
 
+    def prepare_tokens_for_salad(self, patch_tokens: Dict[str, torch.Tensor], images_shape: Tuple[int]) -> Tuple[torch.Tensor]:
+        B, S, C_in, H, W = images_shape
+
+        if self.norm_layer:
+            f = patch_tokens['x_norm_patchtokens']
+            t = patch_tokens['x_norm_clstoken']
+        else:
+            raise RuntimeError("Not implemented yet. Work in progress.")
+        
+        f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
+
+        return f, t
