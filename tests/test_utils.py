@@ -3,7 +3,7 @@ from typing import List, Callable
 import glob
 
 from PIL import Image
-from torch.data.utils import Dataset
+from torch.utils.data import Dataset
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import vpr.models.backbones.da3.da3 as da3

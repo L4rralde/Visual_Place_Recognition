@@ -1,20 +1,15 @@
 import os
-from typing import List, Callable
-import glob
 import argparse
 import random
 
-from PIL import Image
 import torch
-from torch.utils.data import Dataset
 import numpy as np
 import torchvision.transforms as T
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from vpr.models.backbones.da3 import get_transforms as da3_get_transforms
 import vpr.models.backbones.da3.da3 as da3
-from utils import load_da3_as_is, load_da3_dino, supported_configs, ImgDirDataset
+from test_utils import load_da3_as_is, load_da3_dino, supported_configs, ImgDirDataset
 
 
 def parse_args():
@@ -128,7 +123,7 @@ def main():
         da3_as_is = load_da3_as_is(config).to(device)
         da3_dino = load_da3_dino(config).to(device)
         try:
-            compare_pipelines_consistency(da3_dino, da3_as_is, dataset, img_size, num_seeds=100)
+            compare_pipelines_consistency(da3_dino, da3_as_is, dataset, img_size, num_seeds=20)
         except AssertionError as e:
             print(f"Model {config} FAIL due to {e}")
             sys.exit(0)

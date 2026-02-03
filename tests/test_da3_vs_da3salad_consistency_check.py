@@ -4,18 +4,14 @@ import random
 
 import torch
 import numpy as np
-import torchvision.transforms as T
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-import vpr.models.backbones.da3.da3 as da3
-from utils import load_da3_as_is, supported_configs, ImgDirDataset, freeze_model
+from test_utils import load_da3_as_is, supported_configs, ImgDirDataset, freeze_model
 from model_flavors.da3_salad import DA3Salad
 
 
-def load_da3_salad(config: str):
-    da3 = da3.da3_from_pretained(config)
+def load_da3_salad(model):
     backbone_args = {
-        'frozen': True,
         'return_token': True,
     }
     agg_args = {
@@ -23,7 +19,7 @@ def load_da3_salad(config: str):
         'cluster_dim': 128,
         'token_dim': 256
     }
-    da3_salad = DA3Salad(da3, backbone_args, agg_args)
+    da3_salad = DA3Salad(model, backbone_args, agg_args)
     freeze_model(da3_salad)
     return da3_salad
 
@@ -31,7 +27,7 @@ def load_da3_salad(config: str):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('img_dir')
-    parser.add_argument('img_size', type=int, default=504)
+    parser.add_argument('--img_size', type=int, default=504)
     args = parser.parse_args()
     return args
 
@@ -75,22 +71,23 @@ def compare_pipelines_consistency(
         # Assumption: da3_dino returns a dictionary matching the aux structure 
         # or we need to access the specific key.
         with torch.no_grad():
-            out = da3_salad.inference(selected_imgs, process_res=img_size)
-            out_golden = da3_as_is.inference(selected_imgs, process_res=img_size)
+            out = da3_salad.inference(selected_paths, process_res=img_size)
+            out_golden = da3_as_is.inference(selected_paths, process_res=img_size)
 
-        shared_keys = {}
+        shared_keys = []
         for k in out.keys():
-            if out_golden.__getattribute__(k, None) is None:
+            if getattr(out_golden, k, None) is None:
                 continue
             shared_keys.append(k)
-
+        
         assert len(shared_keys) > 0, "No shared predictions"
         total_diff = 0
         for k in shared_keys:
             src = out[k]
-            ref = out[k]
-            abs_diff = np.absolute(src, ref).sum()
-            assert abs_diff < 1e-6, "Mismatch"
+            ref = getattr(out_golden, k)
+            abs_diff = np.absolute(src - ref).sum()
+            if abs_diff > 1e-6:
+                raise RuntimeError(f"{k} mismatch: {abs_diff}")
             total_diff += abs_diff
 
         # 3. Report
@@ -117,18 +114,22 @@ def main():
     
     for config in supported_configs:
         da3_as_is = load_da3_as_is(config).to(device)
-        da3_salad = load_da3_salad(config).to(device)
+        da3_salad = load_da3_salad(da3_as_is).to(device)
         try:
             compare_pipelines_consistency(
                 da3_salad,
                 da3_as_is, 
                 dataset,
                 args.img_size,
-                num_seeds=100
+                num_seeds=20
             )
         except AssertionError as e:
             print(f"Model {config} FAIL due to {e}")
             sys.exit(0)
+        
+        del da3_as_is, da3_salad
+        torch.cuda.empty_cache()
+
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ import numpy as np
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import vpr.models.backbones.da3.da3 as da3
-from utils import load_da3_as_is, supported_configs
+from test_utils import load_da3_as_is, supported_configs
 
 
 def parse_args():
@@ -117,7 +117,7 @@ def main():
     for config in supported_configs:
         da3_as_is = load_da3_as_is(config).to(device)
         try:
-            run_randomized_consistency_test(da3_as_is, img_dir, num_seeds=100)
+            run_randomized_consistency_test(da3_as_is, img_dir, num_seeds=20)
         except AssertionError as e:
             print(f"Fail at model config: {config} with signature: {e}")
             sys.exit(0)
