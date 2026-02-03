@@ -27,11 +27,14 @@ class DepthAnything3Backbone(nn.Module):
     def __init__(self, da3: DepthAnything3):
         super().__init__()
         self.da3: DepthAnything3 = da3
-        self.dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
+    
+    @property
+    def dino(self) -> DinoVisionTransformer:
+        return self.da3.model.backbone.pretrained
 
     @staticmethod
     def from_pretrained(model_name: str = "da3-base", **kwargs) -> "DepthAnything3Backbone":
-        da3: DepthAnything3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
+        da3 = da3_from_pretained(model_name, **kwargs)
         return DepthAnything3Backbone(da3)
 
     def forward(
@@ -73,120 +76,50 @@ class DepthAnything3Backbone(nn.Module):
             image, extrinsics, intrinsics, process_res
         )
 
-        #FOR COMPARISON
-        #imgs_preprocessed = imgs_cpu.cpu().numpy()
-        #np.save(
-        #    os.path.join(save_dir, 'imgs_preprocessed.npy'),
-        #    imgs_preprocessed
-        #)
-
         # Prepare tensors for model
         #This basically does: .to(device, non_blocking=True)[None].float() for each input
         imgs, ex_t, in_t = self.da3._prepare_model_inputs(imgs_cpu, extrinsics, intrinsics)
 
-        #FOR COMPARISON
-        #imgs_prepared = imgs.cpu().numpy()
-        #np.save(
-        #    os.path.join(save_dir, 'imgs_prepared.npy'),
-        #    imgs_prepared
-        #)
-
         # Normalize extrinsics
         # If ext_t is None, returns None.
         ex_t_norm = self.da3._normalize_extrinsics(ex_t.clone() if ex_t is not None else None)
-
-        # Run model forward pass
-
-        #raw_output = self.da3._run_model_forward(
-        #    imgs, ex_t_norm, in_t, export_feat_layers
-        #)
         
-        #Run model forward def
         feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
-        #output = self.da3.forward(imgs, ex_t, in_t, feat_layers)
 
-        #def forward def
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         with torch.no_grad():
-            with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
-                #return self.da3.model(
-                #    image, extrinsics, intrinsics, export_feat_layers
-                #) #Returns a Prediction class object
-            
-                #Model forward def
+            with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):            
                 if ex_t_norm is not None:
                     with torch.autocast(device_type=imgs.device.type, enabled=False):
                         cam_token = self.da3.model.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
                 else:
                     cam_token = None
-            
-                #feats, aux_feats = self.backbone(
-                #    x, cam_token=cam_token, export_feat_layers=export_feat_layers, ref_view_strategy=ref_view_strategy
-                #)
-                #H, W = x.shape[-2], x.shape[-1]
 
-                #Creates a dictionary. Key is the extra layer, value are reshaped tokens without cls tokens.
-                #output.aux = self._extract_auxiliary_features(aux_feats, export_feat_layers, H, W)
-
-                #self.backbone.forward def
-
-                #return self.pretrained.get_intermediate_layers(
-                #    x,
-                #    self.out_layers, #Out layers: n=1. Take the last layer
-                #    **kwargs,
-                #)#Here, the magic happens:
-            
-                #self.bakcbone.pretrained(dino).get_intermediate_layers def:
-
-                #outputs, aux_outputs = self.da3.model.backbone.pretrained._get_intermediate_layers_not_chunked(
-                #    x, n, export_feat_layers=export_feat_layers, **kwargs
-                #)
-                #camera_tokens = [out[0] for out in outputs]
-                #if outputs[0][1].shape[-1] == self.embed_dim: #Idk y last dim could be self.embed_dim * 2. One way or the other, It doesnt matter since I only care about auxiliar layers.
-                #    outputs = [self.norm(out[1]) for out in outputs]
-                #elif outputs[0][1].shape[-1] == (self.embed_dim * 2):
-                #    outputs = [
-                #        torch.cat(
-                #            [out[1][..., : self.embed_dim], self.norm(out[1][..., self.embed_dim :])],
-                #            dim=-1,
-                #        )
-                #        for out in outputs
-                #    ]
-                #else:
-                #    raise ValueError(f"Invalid output shape: {outputs[0][1].shape}")
-                #aux_outputs = [self.norm(out) for out in aux_outputs] #We want to take this outputs (with the class tokens)
-                #outputs = [out[..., 1 + self.num_register_tokens :, :] for out in outputs]
-                #aux_outputs = [out[..., 1 + self.num_register_tokens :, :] for out in aux_outputs] #Here, cls tokens are dropped :(
-                #return tuple(zip(outputs, camera_tokens)), aux_outputs
-
-                # self.bakcbone.pretrained(dino)._get_intermediate_layers_not_chunked def
-                #Let x be a batch of sequences. x.shape = (batch_size, sequence len, channels, height, width)
-                dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
-                outputs, aux_outputs = dino._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
+                outputs, aux_outputs = self.dino._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
                     imgs,
                     n=self.da3.model.backbone.out_layers,
                     export_feat_layers=feat_layers,
                     cam_token=cam_token,
                 )
                 camera_tokens = [out[0] for out in outputs]
-                if outputs[0][1].shape[-1] == dino.embed_dim:
-                    outputs = [dino.norm(out[1]) for out in outputs]
-                elif outputs[0][1].shape[-1] == (dino.embed_dim * 2): #Idk why feature dim can be doubled, but one is normalized. I think its because features and last local features are passed
+                if outputs[0][1].shape[-1] == self.dino.embed_dim:
+                    outputs = [self.dino.norm(out[1]) for out in outputs]
+                elif outputs[0][1].shape[-1] == (self.dino.embed_dim * 2): #Idk why feature dim can be doubled, but one is normalized. I think its because features and last local features are passed
                     outputs = [
                         torch.cat(
-                            [out[1][..., : dino.embed_dim], dino.norm(out[1][..., dino.embed_dim :])],
+                            [out[1][..., : self.dino.embed_dim], self.dino.norm(out[1][..., self.dino.embed_dim :])],
                             dim=-1,
                         )
                         for out in outputs
                     ]
                 else:
                     raise ValueError(f"Invalid output shape: {outputs[0][1].shape}")
-                aux_outputs = [dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
-                outputs = [out[..., 1 + dino.num_register_tokens :, :] for out in outputs] #Taking feat tokens only
+                aux_outputs = [self.dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
+                outputs = [out[..., 1 + self.dino.num_register_tokens :, :] for out in outputs] #Taking feat tokens only
                 
                 #Extra line of code
                 cls_outputs = [out[..., 0, :] for out in aux_outputs]
-                aux_outputs = [out[..., 1 + dino.num_register_tokens :, :] for out in aux_outputs]
+                aux_outputs = [out[..., 1 + self.dino.num_register_tokens :, :] for out in aux_outputs]
 
                 feats = tuple(zip(outputs, camera_tokens))
                 aux_feats = aux_outputs
@@ -234,7 +167,7 @@ class DepthAnything3Backbone(nn.Module):
         for i, blk in enumerate(self.dino.blocks):
             if i == self.dino.alt_start:
                 break
-            if i < self.dino.rope_start or self.rope is None:
+            if i < self.dino.rope_start or self.dino.rope is None:
                 g_pos, l_pos = None, None
             else:
                 g_pos = pos_nodiff
@@ -314,94 +247,25 @@ class DepthAnything3Backbone(nn.Module):
             image, extrinsics, intrinsics, process_res
         )
 
-        #FOR COMPARISON
-        #imgs_preprocessed = imgs_cpu.cpu().numpy()
-        #np.save(
-        #    os.path.join(save_dir, 'imgs_preprocessed.npy'),
-        #    imgs_preprocessed
-        #)
-
         # Prepare tensors for model
         #This basically does: .to(device, non_blocking=True)[None].float() for each input
         imgs, ex_t, in_t = self.da3._prepare_model_inputs(imgs_cpu, extrinsics, intrinsics)
-
-        #FOR COMPARISON
-        #imgs_prepared = imgs.cpu().numpy()
-        #np.save(
-        #    os.path.join(save_dir, 'imgs_prepared.npy'),
-        #    imgs_prepared
-        #)
 
         # Normalize extrinsics
         # If ext_t is None, returns None.
         ex_t_norm = self.da3._normalize_extrinsics(ex_t.clone() if ex_t is not None else None)
 
-        # Run model forward pass
-
-        #raw_output = self.da3._run_model_forward(
-        #    imgs, ex_t_norm, in_t, export_feat_layers
-        #)
-        
-        #Run model forward def
         feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
-        #output = self.da3.forward(imgs, ex_t, in_t, feat_layers)
 
-        #def forward def
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         with torch.no_grad():
             with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
-                #return self.da3.model(
-                #    image, extrinsics, intrinsics, export_feat_layers
-                #) #Returns a Prediction class object
-            
-                #Model forward def
                 if ex_t_norm is not None:
                     with torch.autocast(device_type=imgs.device.type, enabled=False):
                         cam_token = self.da3.model.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
                 else:
                     cam_token = None
-            
-                #feats, aux_feats = self.backbone(
-                #    x, cam_token=cam_token, export_feat_layers=export_feat_layers, ref_view_strategy=ref_view_strategy
-                #)
-                #H, W = x.shape[-2], x.shape[-1]
 
-                #Creates a dictionary. Key is the extra layer, value are reshaped tokens without cls tokens.
-                #output.aux = self._extract_auxiliary_features(aux_feats, export_feat_layers, H, W)
-
-                #self.backbone.forward def
-
-                #return self.pretrained.get_intermediate_layers(
-                #    x,
-                #    self.out_layers, #Out layers: n=1. Take the last layer
-                #    **kwargs,
-                #)#Here, the magic happens:
-            
-                #self.bakcbone.pretrained(dino).get_intermediate_layers def:
-
-                #outputs, aux_outputs = self.da3.model.backbone.pretrained._get_intermediate_layers_not_chunked(
-                #    x, n, export_feat_layers=export_feat_layers, **kwargs
-                #)
-                #camera_tokens = [out[0] for out in outputs]
-                #if outputs[0][1].shape[-1] == self.embed_dim: #Idk y last dim could be self.embed_dim * 2. One way or the other, It doesnt matter since I only care about auxiliar layers.
-                #    outputs = [self.norm(out[1]) for out in outputs]
-                #elif outputs[0][1].shape[-1] == (self.embed_dim * 2):
-                #    outputs = [
-                #        torch.cat(
-                #            [out[1][..., : self.embed_dim], self.norm(out[1][..., self.embed_dim :])],
-                #            dim=-1,
-                #        )
-                #        for out in outputs
-                #    ]
-                #else:
-                #    raise ValueError(f"Invalid output shape: {outputs[0][1].shape}")
-                #aux_outputs = [self.norm(out) for out in aux_outputs] #We want to take this outputs (with the class tokens)
-                #outputs = [out[..., 1 + self.num_register_tokens :, :] for out in outputs]
-                #aux_outputs = [out[..., 1 + self.num_register_tokens :, :] for out in aux_outputs] #Here, cls tokens are dropped :(
-                #return tuple(zip(outputs, camera_tokens)), aux_outputs
-
-                # self.bakcbone.pretrained(dino)._get_intermediate_layers_not_chunked def
-                #Let x be a batch of sequences. x.shape = (batch_size, sequence len, channels, height, width)
                 _, aux_outputs, _, _ = self._dino_attend(
                     imgs,
                     feat_layers,
@@ -448,7 +312,7 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         training_salad: bool=False,
         **kwargs
     ):
-        super().__init__(da3, **kwargs)
+        super().__init__(da3)
         self.return_token = return_token
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
@@ -460,7 +324,7 @@ class DepthAnything3Dino(DepthAnything3Backbone):
 
     @staticmethod
     def from_pretrained(model_name: str = "da3-base", return_token: bool=False, **kwargs) -> "DepthAnything3Dino":
-        da3: DepthAnything3 = DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
+        da3 = da3_from_pretained(model_name, **kwargs)
         return DepthAnything3Dino(da3, return_token, **kwargs)
 
     def forward(
@@ -474,10 +338,9 @@ class DepthAnything3Dino(DepthAnything3Backbone):
     ) -> Dict[str, torch.Tensor]:
         image, extrinsics, intrinsics = self._prepare_inputs(x, extrinsics, intrinsics)
 
-        dino: DinoVisionTransformer = self.da3.model.backbone.pretrained
         if feat_layer == -1:
-            feat_layer = dino.alt_start -1
-        assert feat_layer < dino.alt_start, "Double check what's the last layer before alternate attention"
+            feat_layer = self.dino.alt_start -1
+        assert feat_layer < self.dino.alt_start, "Double check what's the last layer before alternate attention"
 
         if process_res == -1:
             H, W, _ = image[0].shape
@@ -554,9 +417,6 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             image = x
         else:
             raise ValueError("Expected tensor or datatype compatible with da3 api.")
-        #FOR COMPARISON
-        #for i, img in enumerate(image):
-        #    np.save(os.path.join(save_dir, f'uint8_img_{i}.npy'), img)
 
         if extrinsics is not None:
             extrinsics = extrinsics.cpu().numpy()
