@@ -26,7 +26,7 @@ def load_pretrained_vggt():
     return vggt
 
 
-class VggtBackbone(nn.Module):
+class VggtBase(nn.Module):
     PATCH_SIZE = 14
     def __init__(
         self,
@@ -34,8 +34,6 @@ class VggtBackbone(nn.Module):
         **kwargs
     ):
         super().__init__()
-        # 1. DO NOT do self.vggt = vggt. That keeps the whole model alive.
-        
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         if 'norm_layer' in kwargs:
@@ -43,20 +41,25 @@ class VggtBackbone(nn.Module):
             print("norm_layer argument flag is not supported for da3. VGGT is used as is")
             print("FUTURE. But this argument can be implemented in the future")
 
-        # 2. Extract only the specific submodule and attributes you need
         self.num_channels = vggt.aggregator.patch_embed.embed_dim
-        self.dino = vggt.aggregator.patch_embed 
         self._resnet_std = vggt.aggregator._resnet_std
         self._resnet_mean = vggt.aggregator._resnet_mean
-        
-        # 3. The 'vggt' object passed in is now a local variable. 
-        # When __init__ finishes, if no one else references it, 
-        # Python will garbage collect the unused parts (the other 95% of the model).
+        self._vggt: VGGT|None = None
+        self._dino = None
+    
+    @property
+    def vggt(self) -> VGGT:
+        if self._vggt is None:
+            raise RuntimeError("self.vggt is not set in this class")
+        return self._vggt
 
-    @staticmethod
-    def from_pretrained(**kwargs) -> "VggtBackbone":
-        vggt = load_pretrained_vggt()
-        return VggtBackbone(vggt, **kwargs)
+    @property
+    def dino(self) -> nn.Module:
+        if self._dino is not None:
+            return self._dino
+        if self._vggt is not None:
+            return self._vggt.aggregator.patch_embed
+        raise RuntimeError("self.dino is not set in this class")
 
     def inference(self, img_path_list: List[str]) -> dict:
         assert torch.cuda.is_available(), "Sadly, only works with cuda"
@@ -110,26 +113,26 @@ class VggtBackbone(nn.Module):
         _, P, C = patch_tokens.shape
 
         # Expand camera and register tokens to match batch size and sequence length
-        camera_token = slice_expand_and_flatten(self.vggt.aggregator.camera_token, B, S)
-        register_token = slice_expand_and_flatten(self.vggt.aggregator.register_token, B, S)
+        camera_token = slice_expand_and_flatten(self._vggt.aggregator.camera_token, B, S)
+        register_token = slice_expand_and_flatten(self._vggt.aggregator.register_token, B, S)
 
         # Concatenate special tokens with patch tokens
         tokens = torch.cat([camera_token, register_token, patch_tokens], dim=1)
 
         pos = None
-        if self.vggt.aggregator.rope is not None:
-            pos = self.vggt.aggregator.position_getter(
+        if self._vggt.aggregator.rope is not None:
+            pos = self._vggt.aggregator.position_getter(
                 B * S,
-                H // self.vggt.aggregator.patch_size,
-                W // self.vggt.aggregator.patch_size,
+                H // self._vggt.aggregator.patch_size,
+                W // self._vggt.aggregator.patch_size,
                 device=images.device
             )
 
-        if self.vggt.aggregator.patch_start_idx > 0:
+        if self._vggt.aggregator.patch_start_idx > 0:
             # do not use position embedding for special tokens (camera and register tokens)
             # so set pos to 0 for the special tokens
             pos = pos + 1
-            pos_special = torch.zeros(B * S, self.vggt.aggregator.patch_start_idx, 2).to(images.device).to(pos.dtype)
+            pos_special = torch.zeros(B * S, self._vggt.aggregator.patch_start_idx, 2).to(images.device).to(pos.dtype)
             pos = torch.cat([pos_special, pos], dim=1)
 
         # update P because we added special tokens
@@ -139,14 +142,14 @@ class VggtBackbone(nn.Module):
         global_idx = 0
         output_list = []
 
-        for _ in range(self.vggt.aggregator.aa_block_num):
-            for attn_type in self.vggt.aggregator.aa_order:
+        for _ in range(self._vggt.aggregator.aa_block_num):
+            for attn_type in self._vggt.aggregator.aa_order:
                 if attn_type == "frame":
-                    tokens, frame_idx, frame_intermediates = self.vggt.aggregator._process_frame_attention(
+                    tokens, frame_idx, frame_intermediates = self._vggt.aggregator._process_frame_attention(
                         tokens, B, S, P, C, frame_idx, pos=pos
                     )
                 elif attn_type == "global":
-                    tokens, global_idx, global_intermediates = self.vggt.aggregator._process_global_attention(
+                    tokens, global_idx, global_intermediates = self._vggt.aggregator._process_global_attention(
                         tokens, B, S, P, C, global_idx, pos=pos
                     )
                 else:
@@ -160,7 +163,7 @@ class VggtBackbone(nn.Module):
         del concat_inter
         del frame_intermediates
         del global_intermediates
-        return output_list, self.vggt.aggregator.patch_start_idx
+        return output_list, self._vggt.aggregator.patch_start_idx
 
     def heads_forward(self, images: torch.Tensor, aggregated_tokens_list: List[torch.Tensor], patch_start_idx: int, query_points:torch.Tensor) -> Dict[str, torch.Tensor]:
         if query_points is not None and len(query_points.shape) == 2:
@@ -169,27 +172,27 @@ class VggtBackbone(nn.Module):
         predictions = {}
 
         with torch.cuda.amp.autocast(enabled=False):
-            if self.vggt.camera_head is not None:
-                pose_enc_list = self.vggt.camera_head(aggregated_tokens_list)
+            if self._vggt.camera_head is not None:
+                pose_enc_list = self._vggt.camera_head(aggregated_tokens_list)
                 predictions["pose_enc"] = pose_enc_list[-1]  # pose encoding of the last iteration
                 predictions["pose_enc_list"] = pose_enc_list
                 
-            if self.vggt.depth_head is not None:
-                depth, depth_conf = self.vggt.depth_head(
+            if self._vggt.depth_head is not None:
+                depth, depth_conf = self._vggt.depth_head(
                     aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
                 )
                 predictions["depth"] = depth
                 predictions["depth_conf"] = depth_conf
 
-            if self.vggt.point_head is not None:
-                pts3d, pts3d_conf = self.vggt.point_head(
+            if self._vggt.point_head is not None:
+                pts3d, pts3d_conf = self._vggt.point_head(
                     aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
                 )
                 predictions["world_points"] = pts3d
                 predictions["world_points_conf"] = pts3d_conf
 
-        if self.vggt.track_head is not None and query_points is not None:
-            track_list, vis, conf = self.vggt.track_head(
+        if self._vggt.track_head is not None and query_points is not None:
+            track_list, vis, conf = self._vggt.track_head(
                 aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx, query_points=query_points
             )
             predictions["track"] = track_list[-1]  # track of the last iteration
@@ -214,11 +217,36 @@ class VggtBackbone(nn.Module):
 
         return predictions
 
+    def prepare_tokens_for_salad(self, patch_tokens: Dict[str, torch.Tensor], images_shape: Tuple[int]) -> Tuple[torch.Tensor]:
+        B, S, C_in, H, W = images_shape
 
-class VggtDino(VggtBackbone):
+        if self.norm_layer:
+            f = patch_tokens['x_norm_patchtokens']
+            t = patch_tokens['x_norm_clstoken']
+        else:
+            raise RuntimeError("Not implemented yet. Work in progress.")
+        
+        f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
+
+        return f, t
+
+
+class VggtBackbone(VggtBase):
+    def __init__(self, vggt, **kwargs):
+        super().__init__(vggt, **kwargs)
+        self._vggt = vggt
+
+    @staticmethod
+    def from_pretrained(**kwargs) -> "VggtBackbone":
+        vggt = load_pretrained_vggt()
+        return VggtBackbone(vggt, **kwargs)
+
+
+class VggtDino(VggtBase):
     def __init__(self, vggt: VGGT, norm_layer: bool=True, **kwargs):
         super().__init__(vggt, **kwargs)
         self.norm_layer = norm_layer
+        self._dino = vggt.aggregator.patch_embed
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtDino":
@@ -261,18 +289,5 @@ class VggtDino(VggtBackbone):
         #x_norm_patchtokens shape = B*S, Total patches, channles
         #x_norm_clstoken shape: B*S, channles
         f, t = self.prepare_tokens_for_salad(patch_tokens, (B, S, C_in, H, W))
-
-        return f, t
-
-    def prepare_tokens_for_salad(self, patch_tokens: Dict[str, torch.Tensor], images_shape: Tuple[int]) -> Tuple[torch.Tensor]:
-        B, S, C_in, H, W = images_shape
-
-        if self.norm_layer:
-            f = patch_tokens['x_norm_patchtokens']
-            t = patch_tokens['x_norm_clstoken']
-        else:
-            raise RuntimeError("Not implemented yet. Work in progress.")
-        
-        f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
 
         return f, t

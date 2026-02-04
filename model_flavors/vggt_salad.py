@@ -7,7 +7,7 @@ import numpy as np
 
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from vpr.models.backbones.vggt import VggtDino, load_pretrained_vggt
+from vpr.models.backbones.vggt import VggtBackbone, load_pretrained_vggt
 from vpr.models import SALAD
 from utils import LightningLog
 from submodules.vggt.vggt.utils.load_fn import load_and_preprocess_images
@@ -22,8 +22,9 @@ class VggtSalad(nn.Module):
         agg_args: dict={}
     ) -> None:
         super().__init__()
+        assert backbone_arch.lower() == "vggt", "There's only one VGGT"
         vggt = load_pretrained_vggt()
-        self.backbone = VggtDino(vggt, **backbone_args)
+        self.backbone = VggtBackbone(vggt, **backbone_args)
         self.aggregator = SALAD(
             num_channels=self.backbone.num_channels,
             **agg_args
