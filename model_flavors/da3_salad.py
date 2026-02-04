@@ -1,4 +1,5 @@
 from typing import List, Dict
+import gc
 
 from PIL import Image
 import torch
@@ -7,7 +8,7 @@ import numpy as np
 
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from vpr.models.backbones.da3 import DepthAnything3Dino
+from vpr.models.backbones.da3 import DepthAnything3Dino, da3_from_pretained
 from vpr.models import SALAD
 from utils import LightningLog
 
@@ -15,26 +16,29 @@ from utils import LightningLog
 class DA3Salad(nn.Module):
     def __init__(
         self,
-        backbone_arch: str,
+        da3: object,
         backbone_args: dict={},
         agg_args: dict={}
     ) -> None:
         super().__init__()
-        self.backbone = DepthAnything3Dino(backbone_arch, **backbone_args)
-        self.aggregator = SALAD(
+        self.backbone: DepthAnything3Dino = DepthAnything3Dino(da3, **backbone_args)
+        self.aggregator: SALAD = SALAD(
             num_channels=self.backbone.num_channels,
             **agg_args
         )
+        assert self.backbone.num_channels == self.aggregator.num_channels, "Uncompatible selection of backbone and aggregator"
 
     @staticmethod
     def from_lightning_log(path: str) -> "DA3Salad":
         log = LightningLog(path)
         assert log.agg_arch == "SALAD", "By the moment only SALAD is supported"
+        da3 = da3_from_pretained(log.backbone_arch)
         model = DA3Salad(
-            log.backbone_arch,
+            da3,
             log.backbone_config,
             log.agg_config
         )
+        "We shouldn't save all weights, just salad's"
         model.load_state_dict(log.state_dict)
 
         return model
@@ -112,6 +116,13 @@ class DA3Salad(nn.Module):
             if not isinstance(v, torch.Tensor):
                 continue
             output[k] = v.squeeze(0).cpu().numpy()
+            del v
+            gc.collect()
+        torch.cuda.empty_cache()
+
+
         output['conf'] = output.pop('depth_conf')
+
+
         
         return output

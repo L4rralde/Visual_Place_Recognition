@@ -28,7 +28,11 @@ def get_backbone(
         backbone = DINOv3(model_name=backbone_arch, **backbone_config)
     elif 'da3' in backbone_arch.lower():
         from .backbones.da3 import DepthAnything3Dino
-        backbone = DepthAnything3Dino(backbone_arch, **backbone_config)
+        backbone = DepthAnything3Dino.from_pretrained(
+            backbone_arch,
+            training_salad=True,
+            **backbone_config
+        )
     elif 'vggt' in backbone_arch.lower():
         from .backbones.vggt import VggtDino
         backbone = VggtDino.from_pretrained(**backbone_config)
