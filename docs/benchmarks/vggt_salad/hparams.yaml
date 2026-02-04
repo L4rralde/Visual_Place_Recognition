@@ -1,0 +1,102 @@
+agg_arch: SALAD
+agg_config:
+  cluster_dim: 128
+  num_clusters: 64
+  token_dim: 256
+backbone_arch: vggt
+backbone_config:
+  frozen: true
+  return_token: true
+batch_sampler: null
+batch_size: 60
+cities:
+- Bangkok
+- BuenosAires
+- LosAngeles
+- MexicoCity
+- OSL
+- Rome
+- Barcelona
+- Chicago
+- Madrid
+- Miami
+- Phoenix
+- TRT
+- Boston
+- Lisbon
+- Medellin
+- Minneapolis
+- PRG
+- WashingtonDC
+- Brussels
+- London
+- Melbourne
+- Osaka
+- PRS
+faiss_gpu: false
+img_per_place: 4
+loss_name: MultiSimilarityLoss
+lr: 6.0e-05
+lr_sched: linear
+lr_sched_args:
+  end_factor: 0.2
+  start_factor: 1
+  total_iters: 4000
+min_img_per_place: 4
+miner_margin: 0.1
+miner_name: MultiSimilarityMiner
+momentum: 0.9
+num_workers: 10
+optimizer: adamw
+random_sample_from_each_place: true
+show_data_stats: true
+shuffle_all: false
+train_transform: !!python/object:torchvision.transforms.transforms.Compose
+  transforms:
+  - &id001 !!python/object:vpr.models.backbones.vggt.transforms.VggtTransform
+    img_size: 294
+    mode: crop
+  - !!python/object:torchvision.transforms.autoaugment.RandAugment
+    _backward_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _backward_pre_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _buffers: {}
+    _forward_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _forward_hooks_always_called: !!python/object/apply:collections.OrderedDict
+    - []
+    _forward_hooks_with_kwargs: !!python/object/apply:collections.OrderedDict
+    - []
+    _forward_pre_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _forward_pre_hooks_with_kwargs: !!python/object/apply:collections.OrderedDict
+    - []
+    _is_full_backward_hook: null
+    _load_state_dict_post_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _load_state_dict_pre_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _modules: {}
+    _non_persistent_buffers_set: !!set {}
+    _parameters: {}
+    _state_dict_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _state_dict_pre_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    fill: null
+    interpolation: !!python/object/apply:torchvision.transforms.functional.InterpolationMode
+    - bilinear
+    magnitude: 9
+    num_magnitude_bins: 31
+    num_ops: 3
+    training: true
+  - !!python/object:torchvision.transforms.transforms.ToTensor {}
+val_set_names:
+- pitts30k_val
+- pitts30k_test
+valid_transform: !!python/object:torchvision.transforms.transforms.Compose
+  transforms:
+  - *id001
+  - !!python/object:torchvision.transforms.transforms.ToTensor {}
+weight_decay: 9.5e-09
