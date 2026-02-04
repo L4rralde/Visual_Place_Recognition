@@ -6,13 +6,13 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-import vpr.models.backbones.da3.da3 as da3
-from vpr.models.backbones.da3.depth_anything_3.api import DepthAnything3
 
 supported_configs = {'SMALL', 'BASE', 'LARGE', 'GIANT'}
 
 
 def load_da3_as_is(config_name: str='BASE'):
+    import vpr.models.backbones.da3.da3 as da3
+    from vpr.models.backbones.da3.depth_anything_3.api import DepthAnything3
     config_name = config_name.upper()
     if not config_name in supported_configs:
         raise ValueError(f"Configuration {config_name} is not supported. Try one of the followings: {supported_configs}")
@@ -23,6 +23,7 @@ def load_da3_as_is(config_name: str='BASE'):
 
 
 def load_da3_dino(config_name: str='BASE', return_token: bool=True):
+    import vpr.models.backbones.da3.da3 as da3
     if not config_name in supported_configs:
         raise ValueError(f"Configuration {config_name} is not supported. Try one of the followings: {supported_configs}")
     da3_dino = da3.DepthAnything3Dino.from_pretrained(
