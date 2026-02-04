@@ -12,14 +12,13 @@ from vggt.utils.load_fn import load_and_preprocess_images
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
 
-
 def load_vggt_state_dict():
     _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
     state_dict = torch.hub.load_state_dict_from_url(_URL, map_location='cpu')
     return state_dict
 
 
-def load_pretrained_vggt():
+def load_pretrained_vggt() -> VGGT:
     vggt = VGGT()
     state_dict = load_vggt_state_dict()
     vggt.load_state_dict(state_dict)
@@ -36,11 +35,7 @@ class VggtBase(nn.Module):
         super().__init__()
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
-        if 'norm_layer' in kwargs:
-            #FUTURE
-            print("norm_layer argument flag is not supported for da3. VGGT is used as is")
-            print("FUTURE. But this argument can be implemented in the future")
-
+        self.norm_layer = kwargs.get('norm_layer', True)
         self.num_channels = vggt.aggregator.patch_embed.embed_dim
         self._resnet_std = vggt.aggregator._resnet_std
         self._resnet_mean = vggt.aggregator._resnet_mean

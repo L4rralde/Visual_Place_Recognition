@@ -17,13 +17,11 @@ from submodules.vggt.vggt.utils.pose_enc import pose_encoding_to_extri_intri
 class VggtSalad(nn.Module):
     def __init__(
         self,
-        backbone_arch: str="vggt",
+        vggt: object,
         backbone_args: dict={},
         agg_args: dict={}
     ) -> None:
         super().__init__()
-        assert backbone_arch.lower() == "vggt", "There's only one VGGT"
-        vggt = load_pretrained_vggt()
         self.backbone = VggtBackbone(vggt, **backbone_args)
         self.aggregator = SALAD(
             num_channels=self.backbone.num_channels,
@@ -31,14 +29,13 @@ class VggtSalad(nn.Module):
         )
 
     @staticmethod
-    def from_lightning_log(path: str) -> "VggtSalad":
+    def from_lightning_log(path: str, vggt: object|None=None) -> "VggtSalad":
         log = LightningLog(path)
-        assert log.agg_arch == "SALAD", "By the moment only SALAD is supported"
-        model = VggtSalad(
-            log.backbone_arch,
-            log.backbone_config,
-            log.agg_config
-        )
+        assert log.agg_arch.upper() == "SALAD", "By the moment only SALAD is supported"
+        assert log.backbone_arch.upper() == "VGGT", "This log might not correspond to vggt-salad"
+        if vggt is None:
+            vggt = load_pretrained_vggt()
+        model = VggtSalad(vggt, log.backbone_config, log.agg_config)
         model.load_state_dict(log.state_dict)
 
         return model
@@ -50,6 +47,8 @@ class VggtSalad(nn.Module):
         patch_tokens = self.backbone.dino_forward(images)
         feats, cls = self.backbone.prepare_tokens_for_salad(patch_tokens, images.shape)
         global_descriptor = self.aggregator((feats, cls))
+        if len(global_descriptor.shape) == 2:
+            global_descriptor = global_descriptor.unsqueeze(0)
 
         if isinstance(patch_tokens, dict):
             patch_tokens = patch_tokens["x_norm_patchtokens"]
@@ -60,10 +59,10 @@ class VggtSalad(nn.Module):
 
         return predictions
 
-    def inference(self, img_path_list: List[str]) -> Dict[np.ndarray]:
+    def inference(self, img_path_list: List[str]) -> Dict[str, np.ndarray]:
         assert torch.cuda.is_available(), "Only works with cuda"
         DEVICE = "cuda"
-        gc.collec()
+        gc.collect()
         torch.cuda.empty_cache()
 
         images = load_and_preprocess_images(img_path_list).to(DEVICE)
