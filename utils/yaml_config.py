@@ -19,7 +19,7 @@ def load_config(yaml_path):
     is_pure_dino = config['backbone_arch'].lower().startswith('dino')
 
     # Validate backbone_config subfields
-    backbone_config_fields = ['return_token']
+    backbone_config_fields = []
     backbone_config = config['backbone_config']
     if 'frozen' in backbone_config:
         if not backbone_config['frozen']:

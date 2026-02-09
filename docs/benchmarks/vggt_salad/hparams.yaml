@@ -6,7 +6,6 @@ agg_config:
 backbone_arch: vggt
 backbone_config:
   frozen: true
-  return_token: true
 batch_sampler: null
 batch_size: 60
 cities:

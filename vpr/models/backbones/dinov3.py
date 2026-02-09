@@ -17,7 +17,6 @@ class DINOv3(nn.Module):
             dinov3_repo_path: os.PathLike|None = None,
             num_trainable_blocks: int = 2,
             norm_layer: bool = False,
-            return_token: bool = False,
             rope_sincos: bool = True,
             probing_from_layer: int|None = None
     ) -> None:
@@ -43,7 +42,6 @@ class DINOv3(nn.Module):
         self.num_trainable_blocks = num_trainable_blocks
         self.num_blocks = len(self.model.blocks)
         self.norm_layer = norm_layer
-        self.return_token = return_token
         self.rope_sincos = rope_sincos
         self.linear_probing = probing_from_layer is not None
 
@@ -117,6 +115,4 @@ class DINOv3(nn.Module):
             self.num_channels
         )).permute(0, 3, 1, 2).contiguous()
 
-        if self.return_token:
-            return features, class_token
-        return features #Future fix: must return same type.
+        return features, class_token

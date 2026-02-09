@@ -8,7 +8,6 @@ input_config:
 
 backbone_config:
   frozen: true
-  return_token: true
 
 agg_config:
   #num_channels from dinov2-large

@@ -5,7 +5,6 @@ input_config:
 
 backbone_config:
   num_trainable_blocks: 2
-  return_token: true
   norm_layer: true
   rope_sincos: true
   probing_from_layer: 10
