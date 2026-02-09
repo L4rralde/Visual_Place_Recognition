@@ -1,4 +1,4 @@
-define: &process_res 252 #This is the largest dimension.
+define: &process_res 308 #This is the largest dimension.
 
 backbone_arch: "da3-large"
 
