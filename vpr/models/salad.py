@@ -1,4 +1,4 @@
-#Code fom https://github.com/serizba/salad
+#Code adapted from https://github.com/serizba/salad with minor modifications
 #@InProceedings{Izquierdo_CVPR_2024_SALAD,
 #    author    = {Izquierdo, Sergio and Civera, Javier},
 #    title     = {Optimal Transport Aggregation for Visual Place Recognition},
@@ -81,6 +81,7 @@ class SALAD(nn.Module):
             cluster_dim=128,
             token_dim=256,
             dropout=0.3,
+            hidden_dim=512,
         ) -> None:
         super().__init__()
 
@@ -88,6 +89,7 @@ class SALAD(nn.Module):
         self.num_clusters= num_clusters
         self.cluster_dim = cluster_dim
         self.token_dim = token_dim
+        self.hidden_dim = hidden_dim
         
         if dropout > 0:
             dropout = nn.Dropout(dropout)
@@ -96,23 +98,23 @@ class SALAD(nn.Module):
 
         # MLP for global scene token g
         self.token_features = nn.Sequential(
-            nn.Linear(self.num_channels, 512),
+            nn.Linear(self.num_channels, self.hidden_dim),
             nn.ReLU(),
-            nn.Linear(512, self.token_dim)
+            nn.Linear(self.hidden_dim, self.token_dim)
         )
         # MLP for local features f_i
         self.cluster_features = nn.Sequential(
-            nn.Conv2d(self.num_channels, 512, 1),
+            nn.Conv2d(self.num_channels, self.hidden_dim, 1),
             dropout,
             nn.ReLU(),
-            nn.Conv2d(512, self.cluster_dim, 1)
+            nn.Conv2d(self.hidden_dim, self.cluster_dim, 1)
         )
         # MLP for score matrix S
         self.score = nn.Sequential(
-            nn.Conv2d(self.num_channels, 512, 1),
+            nn.Conv2d(self.num_channels, self.hidden_dim, 1),
             dropout,
             nn.ReLU(),
-            nn.Conv2d(512, self.num_clusters, 1),
+            nn.Conv2d(self.hidden_dim, self.num_clusters, 1),
         )
         # Dustbin parameter z
         self.dust_bin = nn.Parameter(torch.tensor(1.))
