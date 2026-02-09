@@ -9,4 +9,4 @@ python train_from_yaml.py --config "$file"
 - [x] Write tests to check if aux features from da3 api match those from my class.
 - [x] File bug regarding da3, cpu memory and different image aspect ratios
 - [ ] Write tests to check if the predictions for 3D reconstruction match (da3_salad vs da3).
-- [ ] Clean out. Remove args that are not required, e.g., return_token. This must be always true.
+- [x] Clean out. Remove args that are not required, e.g., return_token. This must be always true.

@@ -22,13 +22,12 @@ def load_da3_as_is(config_name: str='BASE'):
     return da3
 
 
-def load_da3_dino(config_name: str='BASE', return_token: bool=True):
+def load_da3_dino(config_name: str='BASE'):
     import vpr.models.backbones.da3.da3 as da3
     if not config_name in supported_configs:
         raise ValueError(f"Configuration {config_name} is not supported. Try one of the followings: {supported_configs}")
     da3_dino = da3.DepthAnything3Dino.from_pretrained(
         model_name=f'da3-{config_name.lower()}',
-        return_token=return_token,
     )
     freeze_model(da3_dino)
 

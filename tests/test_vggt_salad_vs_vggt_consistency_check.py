@@ -103,13 +103,12 @@ def main() -> None:
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     vggt = load_pretrained_vggt().to(device)
     print("Finished loading vggt.")
-    backbone_args = {'return_token': True}
     agg_args = {
         'num_clusters': 64,
         'cluster_dim': 128,
         'token_dim': 256
     }
-    vggt_salad = VggtSalad(vggt, backbone_args, agg_args).to(device)
+    vggt_salad = VggtSalad(vggt, agg_args=agg_args).to(device)
 
     compare_pipelines(vggt, vggt_salad, dataset, device, num_seeds=args.num_seeds)
 

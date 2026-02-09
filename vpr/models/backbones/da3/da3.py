@@ -307,12 +307,10 @@ class DepthAnything3Dino(DepthAnything3Backbone):
     def __init__(
         self,
         da3: DepthAnything3,
-        return_token: bool=False,
         training_salad: bool=False,
         **kwargs
     ):
         super().__init__(da3)
-        self.return_token = return_token
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
         if 'norm_layer' in kwargs:
@@ -322,9 +320,9 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         self.dino_alt_start = self.dino.alt_start
 
     @staticmethod
-    def from_pretrained(model_name: str = "da3-base", return_token: bool=False, **kwargs) -> "DepthAnything3Dino":
+    def from_pretrained(model_name: str = "da3-base", **kwargs) -> "DepthAnything3Dino":
         da3 = da3_from_pretained(model_name, **kwargs)
-        return DepthAnything3Dino(da3, return_token, **kwargs)
+        return DepthAnything3Dino(da3, **kwargs)
 
     def forward(
         self,
@@ -370,9 +368,7 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         #f is already detached.
         f_reshaped, t_reshaped = self._format_output_for_salad(output, feat_layer)
 
-        if self.return_token:
-            return f_reshaped, t_reshaped
-        return f_reshaped
+        return f_reshaped, t_reshaped
 
     def _format_output_for_salad(self, output: Dict[str, torch.Tensor], feat_layer: int) -> Tuple[torch.Tensor]:
         f = output.aux[f"feat_layer_{feat_layer}"] #Shape = B, S, h_tokens, w_tokens, dim

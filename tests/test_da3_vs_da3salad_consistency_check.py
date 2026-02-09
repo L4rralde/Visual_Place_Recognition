@@ -11,15 +11,12 @@ from model_flavors.da3_salad import DA3Salad
 
 
 def load_da3_salad(model):
-    backbone_args = {
-        'return_token': True,
-    }
     agg_args = {
         'num_clusters': 64,
         'cluster_dim': 128,
         'token_dim': 256
     }
-    da3_salad = DA3Salad(model, backbone_args, agg_args)
+    da3_salad = DA3Salad(model, agg_args=agg_args)
     freeze_model(da3_salad)
     return da3_salad
 

@@ -26,7 +26,6 @@ class DINOv2(nn.Module):
             should be one of ('dinov2_vits14', 'dinov2_vitb14', 'dinov2_vitl14', 'dinov2_vitg14')
         num_trainable_blocks (int): The number of last blocks in the model that are trainable.
         norm_layer (bool): If True, a normalization layer is applied in the forward pass.
-        return_token (bool): If True, the forward pass returns both the feature map and the token.
     """
     PATCH_SIZE: int = 14
     def __init__(
@@ -34,7 +33,6 @@ class DINOv2(nn.Module):
             model_name='dinov2_vitb14',
             num_trainable_blocks=2,
             norm_layer=False,
-            return_token=False
         ):
         super().__init__()
 
@@ -43,8 +41,6 @@ class DINOv2(nn.Module):
         self.num_channels = DINOV2_ARCHS[model_name]
         self.num_trainable_blocks = num_trainable_blocks
         self.norm_layer = norm_layer
-        self.return_token = return_token
-
 
     def forward(self, x):
         """
@@ -55,7 +51,7 @@ class DINOv2(nn.Module):
 
         Returns:
             f (torch.Tensor): The feature map [B, C, H // 14, W // 14].
-            t (torch.Tensor): The token [B, C]. This is only returned if return_token is True.
+            t (torch.Tensor): The token [B, C].
         """
 
         B, C, H, W = x.shape
@@ -81,6 +77,4 @@ class DINOv2(nn.Module):
         # Reshape to (B, C, H, W)
         f = f.reshape((B, H // 14, W // 14, self.num_channels)).permute(0, 3, 1, 2)
 
-        if self.return_token:
-            return f, t
-        return f
+        return f, t
