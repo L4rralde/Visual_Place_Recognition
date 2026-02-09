@@ -54,7 +54,7 @@ class ImgDirDataset(Dataset):
         for ext in valid_exts:
             all_img_paths.extend(glob.glob(os.path.join(img_dir, ext)))
         
-        return all_img_paths
+        return sorted(all_img_paths)
 
     def __len__(self) -> int:
         return len(self.img_pahts)
