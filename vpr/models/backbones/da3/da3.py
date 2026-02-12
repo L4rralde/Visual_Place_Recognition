@@ -1,5 +1,4 @@
 
-import os
 from typing import Sequence
 from typing import List, Dict, Tuple
 
@@ -88,53 +87,19 @@ class DepthAnything3Backbone(nn.Module):
             with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
                 cam_token = None
 
-                outputs, aux_outputs = self.dino._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
+                outputs, aux_outputs = self._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
                     imgs,
                     n=self.da3.model.backbone.out_layers,
                     export_feat_layers=feat_layers,
                     cam_token=cam_token,
                 )
-                camera_tokens = [out[0] for out in outputs]
-                if outputs[0][1].shape[-1] == self.dino.embed_dim:
-                    outputs = [self.dino.norm(out[1]) for out in outputs]
-                elif outputs[0][1].shape[-1] == (self.dino.embed_dim * 2): #Idk why feature dim can be doubled, but one is normalized. I think its because features and last local features are passed
-                    outputs = [
-                        torch.cat(
-                            [out[1][..., : self.dino.embed_dim], self.dino.norm(out[1][..., self.dino.embed_dim :])],
-                            dim=-1,
-                        )
-                        for out in outputs
-                    ]
-                else:
-                    raise ValueError(f"Invalid output shape: {outputs[0][1].shape}")
-                aux_outputs = [self.dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
-                outputs = [out[..., 1 + self.dino.num_register_tokens :, :] for out in outputs] #Taking feat tokens only
+                feats = self._alt_attend_feats(outputs)
                 
-                #Extra line of code
-                cls_outputs = [out[..., 0, :] for out in aux_outputs]
-                aux_outputs = [out[..., 1 + self.dino.num_register_tokens :, :] for out in aux_outputs]
-
-                feats = tuple(zip(outputs, camera_tokens))
-                aux_feats = aux_outputs
-                cls_token = cls_outputs
-
-                H, W = imgs.shape[-2], imgs.shape[-1]
-
+                #Extra lines of code
+                aux_feats, cls_token = self._aux_layers_feats(aux_outputs)
                 da3_model: DepthAnything3Net = self.da3.model
                 if kwargs.get("export_depth", False):
-                    use_ray_pose = kwargs.get('use_ray_pose', False)
-                    infer_gs = kwargs.get('infer_gs', False)
-                    # Process features through depth head
-                    with torch.autocast(device_type=imgs.device.type, enabled=False):
-                        output = da3_model._process_depth_head(feats, H, W)
-                        if use_ray_pose:
-                            output = da3_model._process_ray_pose_estimation(output, H, W)
-                        else:
-                            output = da3_model._process_camera_estimation(feats, H, W, output)
-                        if infer_gs:
-                            output = da3_model._process_gs_head(feats, H, W, output, imgs)
-                    
-                    #output = da3_model._process_mono_sky_estimation(output)    
+                    output = self._heads_forward(imgs, feats, **kwargs)
                 else:
                     output = Dict()
 
@@ -142,6 +107,7 @@ class DepthAnything3Backbone(nn.Module):
                 #Each layer's aux features is reshped to Batch_size, sequence, num_vertical_patches, num horizontal patches, embed dim
                 #Each layer's acx features is resotred in a dict, e.g. f"feat_layer_{feat_layer}"
                 #output.aux is a dictionary 
+                H, W = imgs.shape[-2], imgs.shape[-1]
                 output.aux = da3_model._extract_auxiliary_features(aux_feats, feat_layers, H, W)
                 output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
 
@@ -149,34 +115,33 @@ class DepthAnything3Backbone(nn.Module):
         output = self.da3._add_processed_images(output, imgs_cpu)
         return output
 
-    def _dino_attend(self, x, export_feat_layers=[], **kwargs):
+    def _dino_attend(self, x, batch_shape, export_feat_layers=[], **kwargs) -> Tuple[torch.Tensor]:
         assert self.dino.alt_start != -1, "Alternate start needed"
         assert isinstance(x, torch.Tensor), "Expected input of type tensor"
-        B, S, _, H, W = x.shape
+        B, S, _, H, W = batch_shape
         x = self.dino.prepare_tokens_with_masks(x)
         aux_output = []
-        pos, pos_nodiff = self.dino._prepare_rope(B, S, H, W, x.device)
+        pos, _ = self.dino._prepare_rope(B, S, H, W, x.device)
 
         for i, blk in enumerate(self.dino.blocks):
             if i == self.dino.alt_start:
                 break
             if i < self.dino.rope_start or self.dino.rope is None:
-                g_pos, l_pos = None, None
+                _, l_pos = None, None
             else:
-                g_pos = pos_nodiff
                 l_pos = pos
             x = self.dino.process_attention(x, blk, 'local', pos=l_pos)
 
             if i in export_feat_layers:
                 aux_output.append(x)
-        return x, aux_output, l_pos, g_pos
+        return x, aux_output
 
-    def _alt_attend(self, x, n=1, export_feat_layers=[], **kwargs):
+    def _alt_attend(self, x, batch_shape: Tuple[int], n=1, export_feat_layers=[], **kwargs):
         #l_pos, g_pos, are they constants one it is calculated first?
-        B, S, _, H, W = x.shape
-        output, total_block_len, aux_output = [], len(self.blocks), []
+        B, S, _, H, W = batch_shape
+        output, total_block_len, aux_output = [], len(self.dino.blocks), []
         blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
-        pos, pos_nodiff = self._prepare_rope(B, S, H, W, x.device)
+        pos, pos_nodiff = self.dino._prepare_rope(B, S, H, W, x.device)
 
         for i, blk in enumerate(self.dino.blocks):
             if i < self.dino.alt_start:
@@ -206,18 +171,64 @@ class DepthAnything3Backbone(nn.Module):
                 local_x = x
             
             if i in blocks_to_take:
-                out_x = torch.cat([local_x, x], dim=-1) if self.cat_token else x
+                out_x = torch.cat([local_x, x], dim=-1) if self.dino.cat_token else x
                 output.append((out_x[:, :, 0], out_x))
             if i in export_feat_layers:
                 aux_output.append(x)
         return output, aux_output
 
+    def _alt_attend_feats(self, outputs: torch.Tensor) -> Tuple[torch.Tensor]:
+        camera_tokens = [out[0] for out in outputs]
+        if outputs[0][1].shape[-1] == self.dino.embed_dim:
+            outputs = [self.dino.norm(out[1]) for out in outputs]
+        elif outputs[0][1].shape[-1] == (self.dino.embed_dim * 2): #Idk why feature dim can be doubled, but one is normalized. I think its because features and last local features are passed
+            outputs = [
+                torch.cat(
+                    [out[1][..., : self.dino.embed_dim], self.dino.norm(out[1][..., self.dino.embed_dim :])],
+                    dim=-1,
+                )
+                for out in outputs
+            ]
+        else:
+            raise ValueError(f"Invalid output shape: {outputs[0][1].shape}")
+        outputs = [out[..., 1 + self.dino.num_register_tokens :, :] for out in outputs] #Taking feat tokens only
+        feats = tuple(zip(outputs, camera_tokens))
+
+        return feats
+
+    def _aux_layers_feats(self, aux_outputs: torch.Tensor) -> None:
+        aux_outputs = [self.dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
+        cls_outputs = [out[..., 0, :] for out in aux_outputs]
+        aux_feats = [out[..., 1 + self.dino.num_register_tokens :, :] for out in aux_outputs]
+
+        return aux_feats, cls_outputs
+
     def _get_intermediate_layers_not_chunked(self, x, n=1, export_feat_layers=[], **kwargs):
-        x, aux_output_bf_alt, l_pos, g_pos = self._dino_attend(x, export_feat_layers, **kwargs)
-        output, aux_output_af_alt = self._alt_attend(x, n, export_feat_layers, **kwargs)
+        batch_shape = x.shape
+        x, aux_output_bf_alt = self._dino_attend(x, batch_shape, export_feat_layers, **kwargs)
+        output, aux_output_af_alt = self._alt_attend(x, batch_shape, n, export_feat_layers, **kwargs)
         
         aux_output = aux_output_bf_alt + aux_output_af_alt
         return output, aux_output
+
+    def _heads_forward(self, imgs: torch.Tensor, feats: Tuple[torch.Tensor], **kwargs) -> Dict[str, torch.Tensor]:
+        H, W = imgs.shape[-2], imgs.shape[-1]
+        
+        use_ray_pose = kwargs.get('use_ray_pose', False)
+        infer_gs = kwargs.get('infer_gs', False)
+        # Process features through depth head
+        da3_model: DepthAnything3Net = self.da3.model
+        with torch.autocast(device_type=imgs.device.type, enabled=False):
+            output = da3_model._process_depth_head(feats, H, W)
+            if use_ray_pose:
+                output = da3_model._process_ray_pose_estimation(output, H, W)
+            else:
+                output = da3_model._process_camera_estimation(feats, H, W, output)
+            if infer_gs:
+                output = da3_model._process_gs_head(feats, H, W, output, imgs)
+        
+        #output = da3_model._process_mono_sky_estimation(output)
+        return output
 
     def dino_only_inference(
         self,
@@ -253,19 +264,12 @@ class DepthAnything3Backbone(nn.Module):
                     feat_layers,
                     cam_token=cam_token
                 )
-                aux_outputs = [self.dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
                 
-                #Extra line of code
-                cls_outputs = [out[..., 0, :] for out in aux_outputs]
-                aux_outputs = [out[..., 1 + self.dino.num_register_tokens :, :] for out in aux_outputs]
-
-                aux_feats = aux_outputs
-                cls_token = cls_outputs
-
-                H, W = imgs.shape[-2], imgs.shape[-1]
+                aux_feats, cls_token = self._aux_layers_feats(aux_outputs)
 
                 da3_model: DepthAnything3Net = self.da3.model
                 output = Dict()
+                H, W = imgs.shape[-2], imgs.shape[-1]
 
                 #Reshapes aux features of the given list of layers.
                 #Each layer's aux features is reshped to Batch_size, sequence, num_vertical_patches, num horizontal patches, embed dim
