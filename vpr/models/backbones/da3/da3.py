@@ -74,12 +74,8 @@ class DepthAnything3Backbone(nn.Module):
 
         # Prepare tensors for model
         #This basically does: .to(device, non_blocking=True)[None].float() for each input
-        imgs, _, _ = self.da3._prepare_model_inputs(
-            imgs_cpu,
-            extrinsics=None,
-            intrinsics=None,
-        )
-
+        device = self.da3._get_model_device()
+        imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
         feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
 
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
@@ -252,7 +248,8 @@ class DepthAnything3Backbone(nn.Module):
 
         # Prepare tensors for model
         #This basically does: .to(device, non_blocking=True)[None].float() for each input
-        imgs, _, _ = self.da3._prepare_model_inputs(imgs_cpu, extrinsics=None, intrinsics=None)
+        device = self.da3._get_model_device()
+        imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
         feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
 
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
