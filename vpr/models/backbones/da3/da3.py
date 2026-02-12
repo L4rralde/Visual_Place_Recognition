@@ -40,16 +40,12 @@ class DepthAnything3Backbone(nn.Module):
     def forward(
         self,
         image: list[np.ndarray | Image.Image | str],
-        extrinsics: np.ndarray | None = None,
-        intrinsics: np.ndarray | None = None,
         process_res: int = 504,
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         return self.da3_inference(
             image,
-            extrinsics,
-            intrinsics,
             process_res,
             export_feat_layers,
             **kwargs
@@ -58,8 +54,6 @@ class DepthAnything3Backbone(nn.Module):
     def da3_inference(
         self,
         image: list[np.ndarray | Image.Image | str],
-        extrinsics: np.ndarray | None = None,
-        intrinsics: np.ndarray | None = None,
         process_res: int = 504,
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
@@ -72,28 +66,27 @@ class DepthAnything3Backbone(nn.Module):
         #Images are to be reshaped. Intrinsics need to be modified. Intrinsics shouldn't modify images...
         #   Extrinsics don't change at all, right?
         assert process_res != -1 , "A valid value must be passed"
-        imgs_cpu, extrinsics, intrinsics = self.da3._preprocess_inputs(
-            image, extrinsics, intrinsics, process_res
+        imgs_cpu, _, _ = self.da3._preprocess_inputs(
+            image,
+            extrinsics=None,
+            intrinsics=None,
+            process_res=process_res
         )
 
         # Prepare tensors for model
         #This basically does: .to(device, non_blocking=True)[None].float() for each input
-        imgs, ex_t, in_t = self.da3._prepare_model_inputs(imgs_cpu, extrinsics, intrinsics)
+        imgs, _, _ = self.da3._prepare_model_inputs(
+            imgs_cpu,
+            extrinsics=None,
+            intrinsics=None,
+        )
 
-        # Normalize extrinsics
-        # If ext_t is None, returns None.
-        ex_t_norm = self.da3._normalize_extrinsics(ex_t.clone() if ex_t is not None else None)
-        
         feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
 
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         with torch.no_grad():
-            with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):            
-                if ex_t_norm is not None:
-                    with torch.autocast(device_type=imgs.device.type, enabled=False):
-                        cam_token = self.da3.model.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
-                else:
-                    cam_token = None
+            with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
+                cam_token = None
 
                 outputs, aux_outputs = self.dino._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
                     imgs,
@@ -139,7 +132,7 @@ class DepthAnything3Backbone(nn.Module):
                         else:
                             output = da3_model._process_camera_estimation(feats, H, W, output)
                         if infer_gs:
-                            output = da3_model._process_gs_head(feats, H, W, output, imgs, ex_t_norm, in_t)
+                            output = da3_model._process_gs_head(feats, H, W, output, imgs)
                     
                     #output = da3_model._process_mono_sky_estimation(output)    
                 else:
@@ -229,8 +222,6 @@ class DepthAnything3Backbone(nn.Module):
     def dino_only_inference(
         self,
         image: list[np.ndarray | Image.Image | str],
-        extrinsics: np.ndarray | None = None,
-        intrinsics: np.ndarray | None = None,
         process_res: int = 504,
         export_feat_layers: Sequence[int] | None = None,
         **kwargs
@@ -243,28 +234,20 @@ class DepthAnything3Backbone(nn.Module):
         #Images are to be reshaped. Intrinsics need to be modified. Intrinsics shouldn't modify images...
         #   Extrinsics don't change at all, right?
         assert process_res != -1 , "A valid value must be passed"
-        imgs_cpu, extrinsics, intrinsics = self.da3._preprocess_inputs(
-            image, extrinsics, intrinsics, process_res
+        imgs_cpu, _, _ = self.da3._preprocess_inputs(
+            image,
+            process_res = process_res
         )
 
         # Prepare tensors for model
         #This basically does: .to(device, non_blocking=True)[None].float() for each input
-        imgs, ex_t, in_t = self.da3._prepare_model_inputs(imgs_cpu, extrinsics, intrinsics)
-
-        # Normalize extrinsics
-        # If ext_t is None, returns None.
-        ex_t_norm = self.da3._normalize_extrinsics(ex_t.clone() if ex_t is not None else None)
-
+        imgs, _, _ = self.da3._prepare_model_inputs(imgs_cpu, extrinsics=None, intrinsics=None)
         feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
 
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         with torch.no_grad():
             with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
-                if ex_t_norm is not None:
-                    with torch.autocast(device_type=imgs.device.type, enabled=False):
-                        cam_token = self.da3.model.cam_enc(ex_t_norm, in_t, imgs.shape[-2:])
-                else:
-                    cam_token = None
+                cam_token = None
                 _, aux_outputs, _, _ = self._dino_attend(
                     imgs,
                     feat_layers,
@@ -329,11 +312,9 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         x: torch.Tensor | List[str | Image.Image | np.ndarray],
         feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
         process_res: int = -1,
-        extrinsics: torch.Tensor | None = None,
-        intrinsics: torch.Tensor | None = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
-        image, extrinsics, intrinsics = self._prepare_inputs(x, extrinsics, intrinsics)
+        image = self._prepare_inputs(x)
 
         if feat_layer == -1:
             feat_layer = self.dino.alt_start -1
@@ -345,12 +326,12 @@ class DepthAnything3Dino(DepthAnything3Backbone):
 
         if self.training_salad:
             output = self.dino_only_inference(
-                image, extrinsics, intrinsics, process_res,
+                image, process_res,
                 export_feat_layers=[feat_layer], **kwargs
             )
         else:
             output = self.da3_inference(
-                image, extrinsics, intrinsics, process_res,
+                image, process_res,
                 export_feat_layers=[feat_layer], **kwargs
             )
 
@@ -389,8 +370,6 @@ class DepthAnything3Dino(DepthAnything3Backbone):
     def _prepare_inputs(
         self,
         x: torch.Tensor | List[str | Image.Image | np.ndarray],
-        extrinsics: torch.Tensor | None = None,
-        intrinsics: torch.Tensor | None = None,
     ) -> tuple:
         if isinstance(x, torch.Tensor):
             S, C, H, W = x.shape #Here, the sequence len will play as Batch size.
@@ -413,19 +392,12 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         else:
             raise ValueError("Expected tensor or datatype compatible with da3 api.")
 
-        if extrinsics is not None:
-            extrinsics = extrinsics.cpu().numpy()
-        if intrinsics is not None:
-            intrinsics = intrinsics.cpu().numpy()
-
-        return image, extrinsics, intrinsics
+        return image
         
 
 def intermediate_features(
     model: DepthAnything3,
     image: list[np.ndarray | Image.Image | str],
-    extrinsics: np.ndarray | None = None,
-    intrinsics: np.ndarray | None = None,
     process_res: int = 504,
     export_feat_layers: list = []
 ) -> Prediction:
@@ -433,7 +405,7 @@ def intermediate_features(
         dino: DinoVisionTransformer = model.model.backbone.pretrained
         export_feat_layers = [dino.alt_start - 1]
     prediction = model.inference(
-        image, extrinsics, intrinsics,
+        image,
         process_res=process_res,
         export_feat_layers=export_feat_layers,
     )
