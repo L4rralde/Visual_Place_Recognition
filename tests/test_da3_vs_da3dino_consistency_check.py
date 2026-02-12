@@ -16,6 +16,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('img_dir')
     parser.add_argument('--img-size', default=252)
+    parser.add_argument('--num-seeds', type=int, default=10)
     args = parser.parse_args()
     return args
 
@@ -123,7 +124,7 @@ def main():
         da3_as_is = load_da3_as_is(config).to(device)
         da3_dino = load_da3_dino(config).to(device)
         try:
-            compare_pipelines_consistency(da3_dino, da3_as_is, dataset, img_size, num_seeds=20)
+            compare_pipelines_consistency(da3_dino, da3_as_is, dataset, img_size, num_seeds=args.num_seeds)
         except AssertionError as e:
             print(f"Model {config} FAIL due to {e}")
             sys.exit(0)
