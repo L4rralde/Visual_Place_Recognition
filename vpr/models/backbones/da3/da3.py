@@ -23,7 +23,7 @@ def da3_from_pretained(model_name: str, **kwargs) -> DepthAnything3:
 
 class DepthAnything3Backbone(nn.Module):
     PATCH_SIZE: int = 14
-    def __init__(self, da3: DepthAnything3):
+    def __init__(self, da3: DepthAnything3, **kwargs):
         super().__init__()
         self.da3: DepthAnything3 = da3
         self.num_channels = self.dino.num_features
@@ -36,7 +36,7 @@ class DepthAnything3Backbone(nn.Module):
     @staticmethod
     def from_pretrained(model_name: str = "da3-base", **kwargs) -> "DepthAnything3Backbone":
         da3 = da3_from_pretained(model_name, **kwargs)
-        return DepthAnything3Backbone(da3)
+        return DepthAnything3Backbone(da3, **kwargs)
 
     def forward(
         self,
