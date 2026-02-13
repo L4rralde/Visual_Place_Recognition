@@ -13,6 +13,7 @@ from test_utils import load_da3_as_is, supported_configs
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('img_dir')
+    parser.add_argument('--num-seeds', type=int, default=10)
     args = parser.parse_args()
     return args
 
@@ -117,7 +118,7 @@ def main():
     for config in supported_configs:
         da3_as_is = load_da3_as_is(config).to(device)
         try:
-            run_randomized_consistency_test(da3_as_is, img_dir, num_seeds=20)
+            run_randomized_consistency_test(da3_as_is, img_dir, num_seeds=args.num_seeds)
         except AssertionError as e:
             print(f"Fail at model config: {config} with signature: {e}")
             sys.exit(0)

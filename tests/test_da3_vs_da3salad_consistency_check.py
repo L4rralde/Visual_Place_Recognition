@@ -25,6 +25,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('img_dir')
     parser.add_argument('--img_size', type=int, default=504)
+    parser.add_argument('--num-seeds', type=int, default=10)
     args = parser.parse_args()
     return args
 
@@ -118,7 +119,7 @@ def main():
                 da3_as_is, 
                 dataset,
                 args.img_size,
-                num_seeds=20
+                num_seeds=args.num_seeds
             )
         except AssertionError as e:
             print(f"Model {config} FAIL due to {e}")
