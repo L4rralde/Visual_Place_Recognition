@@ -39,7 +39,13 @@ class DA3Salad(nn.Module):
             log.agg_config
         )
         "We shouldn't save all weights, just salad's"
-        model.load_state_dict(log.state_dict)
+        full_state = log.state_dict
+        prefix = "aggregator"
+        salad_state = {k: v for k, v in full_state.items() if k.startswith(prefix)}
+        del full_state
+        gc.collect()
+
+        model.load_state_dict(salad_state, strict=False)
 
         return model
 

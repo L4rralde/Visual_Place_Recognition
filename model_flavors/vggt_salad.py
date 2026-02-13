@@ -36,7 +36,13 @@ class VggtSalad(nn.Module):
         if vggt is None:
             vggt = load_pretrained_vggt()
         model = VggtSalad(vggt, log.backbone_config, log.agg_config)
-        model.load_state_dict(log.state_dict)
+        full_state = log.state_dict
+        prefix = "aggregator"
+        salad_state = {k: v for k, v in full_state.items() if k.startswith(prefix)}
+        del full_state
+        gc.collect()
+
+        model.load_state_dict(salad_state, strict=False)
 
         return model
     
