@@ -30,7 +30,6 @@ def get_backbone(
         from .backbones.da3 import DepthAnything3Dino
         backbone = DepthAnything3Dino.from_pretrained(
             backbone_arch,
-            training_salad=True,
             **backbone_config
         )
     elif 'vggt' in backbone_arch.lower():

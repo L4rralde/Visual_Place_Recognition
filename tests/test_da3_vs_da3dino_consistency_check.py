@@ -9,7 +9,19 @@ import torchvision.transforms as T
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import vpr.models.backbones.da3.da3 as da3
-from test_utils import load_da3_as_is, load_da3_dino, supported_configs, ImgDirDataset
+from test_utils import load_da3_as_is, freeze_model, supported_configs, ImgDirDataset
+
+
+def load_da3_dino(config_name: str='BASE'):
+    import vpr.models.backbones.da3.da3 as da3
+    if not config_name in supported_configs:
+        raise ValueError(f"Configuration {config_name} is not supported. Try one of the followings: {supported_configs}")
+    da3_dino = da3.DepthAnything3Dino.from_pretrained(
+        model_name=f'da3-{config_name.lower()}',
+    )
+    freeze_model(da3_dino)
+
+    return da3_dino
 
 
 def parse_args():
@@ -22,7 +34,7 @@ def parse_args():
 
 
 def compare_pipelines_consistency(
-    da3_dino_fn,         # The function that accepts tensors: da3_dino
+    da3_dino,         # The function that accepts tensors: da3_dino
     model_instance,      # The model passed to intermediate_features (da3_as_is)
     dataset,
     img_size=252,
@@ -58,13 +70,13 @@ def compare_pipelines_consistency(
         print([os.path.basename(path) for path in selected_paths])
 
         # 2. Stack Tensors
-        img_tensor = torch.stack(selected_tensors).to(da3_dino_fn.da3.device)
+        img_tensor = torch.stack(selected_tensors).to(da3_dino.da3.device)
         
         # 3. Run Inference
         # Assumption: da3_dino returns a dictionary matching the aux structure 
         # or we need to access the specific key.
         with torch.no_grad():
-            out_a = da3_dino_fn(img_tensor, process_res=img_size)
+            out_a = da3_dino(img_tensor, process_res=img_size)
         
         feat_a, _ = out_a
         feat_a = feat_a.permute(0, 2, 3, 1).cpu().numpy()

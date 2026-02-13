@@ -8,7 +8,7 @@ import numpy as np
 
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from vpr.models.backbones.da3 import DepthAnything3Dino, da3_from_pretained
+from vpr.models.backbones.da3 import DepthAnything3Backbone, da3_from_pretained
 from vpr.models import SALAD
 from utils import LightningLog
 
@@ -21,7 +21,7 @@ class DA3Salad(nn.Module):
         agg_args: dict={}
     ) -> None:
         super().__init__()
-        self.backbone: DepthAnything3Dino = DepthAnything3Dino(da3, **backbone_args)
+        self.backbone: DepthAnything3Backbone = DepthAnything3Backbone(da3, **backbone_args)
         self.aggregator: SALAD = SALAD(
             num_channels=self.backbone.num_channels,
             **agg_args
@@ -45,15 +45,16 @@ class DA3Salad(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor | List[str | Image.Image | np.ndarray],
+        x: torch.Tensor,
         feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
         process_res: int = -1,
         infer_gs: bool = False,
+        add_imgs: bool = False,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         #Predictions are two fold: da3 prediction output and global features from SALAD.
         # 1. Prepare input for da3
-        image = self.backbone._prepare_inputs(x)
+        image = self.backbone._prepare_inputs(x) #Convert Torch Image to np.ndarray image (as Image.Image to ndarray)
         if feat_layer == -1:
             feat_layer = self.backbone.dino_alt_start - 1
         assert feat_layer < self.backbone.dino_alt_start, "Double check what's the last layer before alternate attention"
@@ -69,12 +70,12 @@ class DA3Salad(nn.Module):
                 raise RuntimeError("Need to provide a valid process resolution if a list of paths is passsed")
             process_res = max(H, W)
 
-        output = self.backbone.da3_inference(
+        output = self.backbone(
             image,
             process_res,
             export_feat_layers=[feat_layer],
-            export_depth=True,
             infer_gs=infer_gs,
+            add_imgs=add_imgs,
             **kwargs
         )
 
@@ -96,13 +97,15 @@ class DA3Salad(nn.Module):
         infer_gs: bool = False,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
-        output = self.forward(
-            x,
-            feat_layer,
-            process_res,
-            infer_gs,
-            **kwargs
-        )
+        with torch.no_grad():
+            output = self.forward(
+                x,
+                feat_layer,
+                process_res,
+                infer_gs,
+                add_imgs=True,
+                **kwargs
+            )
         
         for k, v in output.items():
             if not isinstance(v, torch.Tensor):
@@ -111,7 +114,6 @@ class DA3Salad(nn.Module):
             del v
             gc.collect()
         torch.cuda.empty_cache()
-
 
         output['conf'] = output.pop('depth_conf')
         

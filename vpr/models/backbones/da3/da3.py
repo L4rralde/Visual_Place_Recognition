@@ -26,6 +26,8 @@ class DepthAnything3Backbone(nn.Module):
     def __init__(self, da3: DepthAnything3):
         super().__init__()
         self.da3: DepthAnything3 = da3
+        self.num_channels = self.dino.num_features
+        self.dino_alt_start = self.da3.model.backbone.pretrained.alt_start
     
     @property
     def dino(self) -> DinoVisionTransformer:
@@ -38,77 +40,66 @@ class DepthAnything3Backbone(nn.Module):
 
     def forward(
         self,
-        image: list[np.ndarray | Image.Image | str],
+        imgs: torch.Tensor,
         process_res: int = 504,
         export_feat_layers: Sequence[int] | None = None,
+        add_imgs: bool=False,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
-        return self.da3_inference(
-            image,
-            process_res,
-            export_feat_layers,
-            **kwargs
-        )
-
-    def da3_inference(
-        self,
-        image: list[np.ndarray | Image.Image | str],
-        process_res: int = 504,
-        export_feat_layers: Sequence[int] | None = None,
-        **kwargs
-    ) -> Dict[str, torch.Tensor]:
-        #FUTURE. What role do the extrinsics and intrinsics play before alternate attention blocks?
-        # Answer: Preprocess images, later, only if BOTH are passed, cls tokens are replaced by a 
-        #           cam_token built upon intrinsics and extrinsics. Otherwise, class tokens are replaced
-        #           by a(one?) trainble cam_token(s?).
-        #           So, it's likely that those only affect preprocessing. And can't affect images at all.
-        #Images are to be reshaped. Intrinsics need to be modified. Intrinsics shouldn't modify images...
-        #   Extrinsics don't change at all, right?
-        assert process_res != -1 , "A valid value must be passed"
-        imgs_cpu, _, _ = self.da3._preprocess_inputs(
-            image,
+        #1. Input preprocessing. Trick to use da3 api preprocessing: convert tensor to ndarray
+        image_list = self._prepare_inputs(imgs) #Tensor to np.ndarray
+        imgs_cpu, _, _ = self.da3._preprocess_inputs( #Img reshaping.
+            image_list,
             extrinsics=None,
             intrinsics=None,
             process_res=process_res
         )
-
-        # Prepare tensors for model
-        #This basically does: .to(device, non_blocking=True)[None].float() for each input
-        device = self.da3._get_model_device()
+        #To device, and float()
+        device = self.da3._get_model_device() 
         imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
-        feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
+
+        if export_feat_layers is None:
+            export_feat_layers = [self.dino.alt_start - 1]
+        feat_layers = list(export_feat_layers)
 
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        with torch.no_grad():
-            with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
-                cam_token = None
+        with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
+            batch_shape = imgs.shape
 
-                outputs, aux_outputs = self._get_intermediate_layers_not_chunked( #With DINOv2 and DINOv3 (+ SALAD) we only compute what we need. This does alternate attention. May be overhead.
-                    imgs,
-                    n=self.da3.model.backbone.out_layers,
-                    export_feat_layers=feat_layers,
-                    cam_token=cam_token,
-                )
-                feats = self._alt_attend_feats(outputs)
-                
-                #Extra lines of code
-                aux_feats, cls_token = self._aux_layers_feats(aux_outputs)
-                da3_model: DepthAnything3Net = self.da3.model
-                if kwargs.get("export_depth", False):
-                    output = self._heads_forward(imgs, feats, **kwargs)
-                else:
-                    output = Dict()
+            #2. per frame processing
+            x, aux_output_bf_alt = self._dino_attend(imgs, batch_shape, feat_layers, **kwargs)
 
-                #Reshapes aux features of the given list of layers.
-                #Each layer's aux features is reshped to Batch_size, sequence, num_vertical_patches, num horizontal patches, embed dim
-                #Each layer's acx features is resotred in a dict, e.g. f"feat_layer_{feat_layer}"
-                #output.aux is a dictionary 
-                H, W = imgs.shape[-2], imgs.shape[-1]
-                output.aux = da3_model._extract_auxiliary_features(aux_feats, feat_layers, H, W)
-                output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
+            #3. Per sequence processing.
+            outputs, aux_output_af_alt = self._alt_attend(
+                x,
+                batch_shape,
+                n=self.da3.model.backbone.out_layers,
+                export_feat_layers=feat_layers,
+                **kwargs
+            )
+            aux_outputs = aux_output_bf_alt + aux_output_af_alt
+            assert len(aux_output_af_alt) == 0, "For da3-salad, this must be empty"
+            #For DINO, we expect aux_output_af_alt to be empty
+
+            #Process alt_attention outputs to get only the normalized features.
+            feats = self._alt_attend_feats(outputs)
+            #Process aux_features to get only the normalized tokens and normalized cls token.
+            aux_feats, cls_token = self._aux_layers_feats(aux_outputs)
+
+            #4. Prediction heads
+            output = self._heads_forward(imgs, feats, **kwargs)
+    
+            #Reshapes aux features of the given list of layers.
+            #Each layer's aux features is reshped to Batch_size, sequence, num_vertical_patches, num horizontal patches, embed dim
+            #Each layer's acx features is resotred in a dict, e.g. f"feat_layer_{feat_layer}"
+            #output.aux is a dictionary 
+            H, W = imgs.shape[-2], imgs.shape[-1]
+            output.aux = self._extract_auxiliary_features(aux_feats, feat_layers, H, W)
+            output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
 
         #Adding pre-processed images:
-        output = self.da3._add_processed_images(output, imgs_cpu)
+        if add_imgs:
+            output = self.da3._add_processed_images(output, imgs_cpu)
         return output
 
     def _dino_attend(self, x, batch_shape, export_feat_layers=[], **kwargs) -> Tuple[torch.Tensor]:
@@ -226,57 +217,6 @@ class DepthAnything3Backbone(nn.Module):
         #output = da3_model._process_mono_sky_estimation(output)
         return output
 
-    def dino_only_inference(
-        self,
-        image: list[np.ndarray | Image.Image | str],
-        process_res: int = 504,
-        export_feat_layers: Sequence[int] | None = None,
-        **kwargs
-    ) -> Dict[str, torch.Tensor]:
-        #FUTURE. What role do the extrinsics and intrinsics play before alternate attention blocks?
-        # Answer: Preprocess images, later, only if BOTH are passed, cls tokens are replaced by a 
-        #           cam_token built upon intrinsics and extrinsics. Otherwise, class tokens are replaced
-        #           by a(one?) trainble cam_token(s?).
-        #           So, it's likely that those only affect preprocessing. And can't affect images at all.
-        #Images are to be reshaped. Intrinsics need to be modified. Intrinsics shouldn't modify images...
-        #   Extrinsics don't change at all, right?
-        assert process_res != -1 , "A valid value must be passed"
-        imgs_cpu, _, _ = self.da3._preprocess_inputs(
-            image,
-            process_res = process_res
-        )
-
-        # Prepare tensors for model
-        #This basically does: .to(device, non_blocking=True)[None].float() for each input
-        device = self.da3._get_model_device()
-        imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
-        feat_layers = list(export_feat_layers) if export_feat_layers is not None else []
-
-        autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        with torch.no_grad():
-            with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
-                cam_token = None
-                _, aux_outputs, _, _ = self._dino_attend(
-                    imgs,
-                    feat_layers,
-                    cam_token=cam_token
-                )
-                
-                aux_feats, cls_token = self._aux_layers_feats(aux_outputs)
-
-                da3_model: DepthAnything3Net = self.da3.model
-                output = Dict()
-                H, W = imgs.shape[-2], imgs.shape[-1]
-
-                #Reshapes aux features of the given list of layers.
-                #Each layer's aux features is reshped to Batch_size, sequence, num_vertical_patches, num horizontal patches, embed dim
-                #Each layer's acx features is resotred in a dict, e.g. f"feat_layer_{feat_layer}"
-                #output.aux is a dictionary 
-                output.aux = da3_model._extract_auxiliary_features(aux_feats, feat_layers, H, W)
-                output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
-
-        return output
-
     def _extract_cls_token(self, cls_token: list[torch.Tensor], feat_layers: list[int]) -> Dict[str, torch.Tensor]:
         aux_cls = Dict()
         assert len(cls_token) == len(feat_layers), "Expected a set of cls tokens per layer to extract"
@@ -286,71 +226,29 @@ class DepthAnything3Backbone(nn.Module):
     
         return aux_cls
 
-
-class DepthAnything3Dino(DepthAnything3Backbone):
-    def __init__(
+    def _extract_auxiliary_features(
         self,
-        da3: DepthAnything3,
-        training_salad: bool=False,
-        **kwargs
-    ):
-        super().__init__(da3)
-        if 'num_trainable_blocks' in kwargs:
-            print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
-        if 'norm_layer' in kwargs:
-            print("norm_layer argument flag is not supported for da3. DA3 is used as is")
-        self.training_salad = training_salad
-        self.num_channels = self.dino.num_features
-        self.dino_alt_start = self.dino.alt_start
-
-    @staticmethod
-    def from_pretrained(model_name: str = "da3-base", **kwargs) -> "DepthAnything3Dino":
-        da3 = da3_from_pretained(model_name, **kwargs)
-        return DepthAnything3Dino(da3, **kwargs)
-
-    def forward(
-        self,
-        x: torch.Tensor | List[str | Image.Image | np.ndarray],
-        feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
-        process_res: int = -1,
-        **kwargs
+        feats: list[torch.Tensor],
+        feat_layers: list[int],
+        H: int, W: int
     ) -> Dict[str, torch.Tensor]:
-        image = self._prepare_inputs(x)
-
-        if feat_layer == -1:
-            feat_layer = self.dino.alt_start -1
-        assert feat_layer < self.dino.alt_start, "Double check what's the last layer before alternate attention"
-
-        if process_res == -1:
-            H, W, _ = image[0].shape
-            process_res = max(H, W)
-
-        if self.training_salad:
-            output = self.dino_only_inference(
-                image, process_res,
-                export_feat_layers=[feat_layer], **kwargs
+        """Extract auxiliary features from specified layers."""
+        aux_features = Dict()
+        assert len(feats) == len(feat_layers)
+        for feat, feat_layer in zip(feats, feat_layers):
+            # Reshape features to spatial dimensions
+            feat_reshaped = feat.reshape(
+                [
+                    feat.shape[0],
+                    feat.shape[1],
+                    H // self.PATCH_SIZE,
+                    W // self.PATCH_SIZE,
+                    feat.shape[-1],
+                ]
             )
-        else:
-            output = self.da3_inference(
-                image, process_res,
-                export_feat_layers=[feat_layer], **kwargs
-            )
+            aux_features[f"feat_layer_{feat_layer}"] = feat_reshaped
 
-        #PATCH_SIZE = 14 (same in DINOv2)
-        #Image resizing. Upper resize. Resize to 504.
-        #Image is resized such as the largest dimension is 504.
-        # Then, we make both dimensions divisible by the PATCH SIZE
-        # by converting dimensions to the nearest multiple of the batch size.
-        # This means that the processed dimensions depend on the input image.
-        # So, also, the number of patches is not fixed.
-        # However, SALAD works with a variable number of tokens, but a fixed number is required for comparison.
-        # A trade-off is required to compare backbones' performance.
-        # Note also that dino+salad is trained with square images, while da3 is not.
-
-        #f is already detached.
-        f_reshaped, t_reshaped = self._format_output_for_salad(output, feat_layer)
-
-        return f_reshaped, t_reshaped
+        return aux_features
 
     def _format_output_for_salad(self, output: Dict[str, torch.Tensor], feat_layer: int) -> Tuple[torch.Tensor]:
         f = output.aux[f"feat_layer_{feat_layer}"] #Shape = B, S, h_tokens, w_tokens, dim
@@ -394,6 +292,89 @@ class DepthAnything3Dino(DepthAnything3Backbone):
             raise ValueError("Expected tensor or datatype compatible with da3 api.")
 
         return image
+
+
+class DepthAnything3Dino(DepthAnything3Backbone):
+    def __init__(
+        self,
+        da3: DepthAnything3,
+        **kwargs
+    ):
+        super().__init__(da3)
+        if 'num_trainable_blocks' in kwargs:
+            print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
+        if 'norm_layer' in kwargs:
+            print("norm_layer argument flag is not supported for da3. DA3 is used as is")
+
+    @staticmethod
+    def from_pretrained(model_name: str = "da3-base", **kwargs) -> "DepthAnything3Dino":
+        da3 = da3_from_pretained(model_name, **kwargs)
+        return DepthAnything3Dino(da3, **kwargs)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
+        process_res: int = -1,
+        **kwargs
+    ) -> Dict[str, torch.Tensor]:
+        # 1. IMage preprocessing.
+        image = self._prepare_inputs(x) #Convert torch tensor to np ndarray
+        if process_res == -1:
+            H, W, _ = image[0].shape
+            process_res = max(H, W)
+        imgs_cpu, _, _ = self.da3._preprocess_inputs(
+            image,
+            process_res = process_res
+        )
+        device = self.da3._get_model_device()
+        imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
+
+        if feat_layer == -1:
+            feat_layer = self.dino.alt_start - 1
+        assert feat_layer < self.dino.alt_start, "Double check what's the last layer before alternate attention"
+        feat_layers = [feat_layer]
+
+        autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        with torch.autocast(device_type=imgs.device.type, dtype=autocast_dtype):
+            batch_shape = imgs.shape
+
+            #2. Per view processing/patch embedding.
+            _, aux_outputs = self._dino_attend(
+                imgs,
+                batch_shape,
+                feat_layers,
+                cam_token=None,
+                **kwargs
+            )
+            
+            aux_feats, cls_token = self._aux_layers_feats(aux_outputs)
+
+            output = Dict()
+            H, W = imgs.shape[-2], imgs.shape[-1]
+
+            #Reshapes aux features of the given list of layers.
+            #Each layer's aux features is reshped to Batch_size, sequence, num_vertical_patches, num horizontal patches, embed dim
+            #Each layer's acx features is resotred in a dict, e.g. f"feat_layer_{feat_layer}"
+            #output.aux is a dictionary 
+            output.aux = self._extract_auxiliary_features(aux_feats, feat_layers, H, W)
+            output.aux_cls = self._extract_cls_token(cls_token, feat_layers)
+
+        #PATCH_SIZE = 14 (same in DINOv2)
+        #Image resizing. Upper resize. Resize to 504.
+        #Image is resized such as the largest dimension is 504.
+        # Then, we make both dimensions divisible by the PATCH SIZE
+        # by converting dimensions to the nearest multiple of the batch size.
+        # This means that the processed dimensions depend on the input image.
+        # So, also, the number of patches is not fixed.
+        # However, SALAD works with a variable number of tokens, but a fixed number is required for comparison.
+        # A trade-off is required to compare backbones' performance.
+        # Note also that dino+salad is trained with square images, while da3 is not.
+
+        #f is already detached.
+        f_reshaped, t_reshaped = self._format_output_for_salad(output, feat_layer)
+
+        return f_reshaped, t_reshaped
         
 
 def intermediate_features(
