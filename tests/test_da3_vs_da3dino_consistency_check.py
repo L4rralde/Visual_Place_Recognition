@@ -70,7 +70,7 @@ def compare_pipelines_consistency(
         print([os.path.basename(path) for path in selected_paths])
 
         # 2. Stack Tensors
-        img_tensor = torch.stack(selected_tensors).to(da3_dino.da3.device)
+        img_tensor = torch.stack(selected_tensors).to(da3_dino.device)
         
         # 3. Run Inference
         # Assumption: da3_dino returns a dictionary matching the aux structure 

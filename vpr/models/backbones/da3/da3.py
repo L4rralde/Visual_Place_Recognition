@@ -1,6 +1,5 @@
 
-from typing import Sequence
-from typing import List, Dict, Tuple
+from typing import Sequence, List, Dict, Tuple
 
 from PIL import Image
 import torch
@@ -23,12 +22,15 @@ def da3_from_pretained(model_name: str, **kwargs) -> DepthAnything3:
 
 class DepthAnything3Backbone(nn.Module):
     PATCH_SIZE: int = 14
-    def __init__(self, da3: DepthAnything3, **kwargs):
+    def __init__(self, da3: DepthAnything3,**kwargs):
         super().__init__()
-        self.da3: DepthAnything3 = da3
-        self.num_channels = self.dino.num_features
-        self.dino_alt_start = self.da3.model.backbone.pretrained.alt_start
-    
+        self.num_channels = da3.model.backbone.pretrained.num_features
+        self.dino_alt_start = da3.model.backbone.pretrained.alt_start
+        self.input_processor = da3.input_processor
+        self.da3: DepthAnything3|None = None
+        if kwargs.get('keep_da3', True):
+            self.da3 = da3
+
     @property
     def dino(self) -> DinoVisionTransformer:
         return self.da3.model.backbone.pretrained
@@ -48,14 +50,12 @@ class DepthAnything3Backbone(nn.Module):
     ) -> Dict[str, torch.Tensor]:
         #1. Input preprocessing. Trick to use da3 api preprocessing: convert tensor to ndarray
         image_list = self._prepare_inputs(imgs) #Tensor to np.ndarray
-        imgs_cpu, _, _ = self.da3._preprocess_inputs( #Img reshaping.
+        imgs_cpu = self._preprocess_inputs( #Img reshaping.
             image_list,
-            extrinsics=None,
-            intrinsics=None,
             process_res=process_res
         )
         #To device, and float()
-        device = self.da3._get_model_device() 
+        device = self._get_model_device() 
         imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
 
         if export_feat_layers is None:
@@ -293,6 +293,46 @@ class DepthAnything3Backbone(nn.Module):
 
         return image
 
+    def _preprocess_inputs(
+        self,
+        image: list[np.ndarray | Image.Image | str],
+        process_res: int = 504,
+        process_res_method: str = "upper_bound_resize",
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        """Preprocess input images using input processor."""
+        imgs_cpu, _, _ = self.input_processor(
+            image,
+            None, #extrinsics
+            None, #intrinsics
+            process_res,
+            process_res_method,
+        )
+        return imgs_cpu
+
+    @property
+    def device(self) -> torch.device:
+        return self._get_model_device()
+
+    def _get_model_device(self) -> torch.device:
+        """
+        Get the device where the model is located.
+
+        Returns:
+            Device where the model parameters are located
+
+        Raises:
+            ValueError: If no tensors are found in the model
+        """
+        # Find device from parameters
+        for param in self.parameters():
+            return param.device
+
+        # Find device from buffers
+        for buffer in self.buffers():
+            return buffer.device
+
+        raise ValueError("No tensor found in model")
+
 
 class DepthAnything3Dino(DepthAnything3Backbone):
     def __init__(
@@ -300,11 +340,16 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         da3: DepthAnything3,
         **kwargs
     ):
-        super().__init__(da3)
+        super().__init__(da3, keep_da3=False)
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
         if 'norm_layer' in kwargs:
             print("norm_layer argument flag is not supported for da3. DA3 is used as is")
+        self._dino: DinoVisionTransformer = da3.model.backbone.pretrained
+
+    @property
+    def dino(self) -> DinoVisionTransformer:
+        return self._dino
 
     @staticmethod
     def from_pretrained(model_name: str = "da3-base", **kwargs) -> "DepthAnything3Dino":
@@ -323,11 +368,11 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         if process_res == -1:
             H, W, _ = image[0].shape
             process_res = max(H, W)
-        imgs_cpu, _, _ = self.da3._preprocess_inputs(
+        imgs_cpu = self._preprocess_inputs(
             image,
             process_res = process_res
         )
-        device = self.da3._get_model_device()
+        device = self._get_model_device()
         imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
 
         if feat_layer == -1:
