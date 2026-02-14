@@ -1,10 +1,15 @@
+import sys, os
+
 import torch
+
 
 DONWLOAD_URL = "https://github.com/L4rralde/Visual_Place_Recognition/releases/download/Da3-Vggt-Salad/"
 
 
-def da3_salad_giant(**kwargs) -> torch.nn.Module:
+def da3_salad_giant(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     dependencies = ['torch', 'DepthAnything3']
+    sys.path.append(vpr_repo_path)
+    sys.path.append(os.path.join(vpr_repo_path, "submodules", "Depth-Anything-3"))
     from model_flavors.da3_salad import DA3Salad
     from vpr.models.backbones.da3.da3 import da3_from_pretained
 
@@ -29,8 +34,10 @@ def da3_salad_giant(**kwargs) -> torch.nn.Module:
 
 
 #https://drive.google.com/file/d/1Bt7VM8uyayb2QTwvspau71ejjt6_aBpI/view?usp=drive_link
-def vggt_salad(**salad) -> torch.nn.Module:
+def vggt_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     dependencies = ['torch', 'VGGT']
+    sys.path.append(vpr_repo_path)
+    sys.path.append(os.path.join(vpr_repo_path, "submodules", "vggt"))
     from model_flavors.vggt_salad import VggtSalad
     from vpr.models.backbones.vggt import load_pretrained_vggt
 
