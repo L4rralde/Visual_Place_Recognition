@@ -1,4 +1,4 @@
-define: &process_res 322 #This is the largest dimension.
+define: &process_res 336 #This is the largest dimension.
 
 backbone_arch: "da3-base"
 
@@ -14,4 +14,4 @@ agg_config:
   cluster_dim: 128
   token_dim: 256
 
-max_epochs: 10
+max_epochs: 5
