@@ -1,9 +1,11 @@
 from typing import List, Dict, Tuple
 import gc
 
+from PIL import Image
 import torch
 import torch.nn as nn
 
+from .transforms import preprocess_image
 import os, sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from vggt.models.vggt import VGGT
@@ -67,7 +69,7 @@ class VggtBase(nn.Module):
         with torch.no_grad():
             with torch.amp.autocast(DEVICE, dtype=dtype):
                 predictions = self.forward(images)
-        extrinsic, intrinsic = pose_encoding_to_extri_intri(
+        extrinsic, intrinsic = self.pose_encoding_to_extri_intri(
             predictions["pose_enc"],
             images.shape[-2:]
         )
@@ -224,6 +226,12 @@ class VggtBase(nn.Module):
         f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
 
         return f, t
+
+    def pose_encoding_to_extri_intri(self, pose_encoding: torch.Tensor, image_size_hw: tuple) -> tuple:
+        return pose_encoding_to_extri_intri(pose_encoding, image_size_hw)
+
+    def preprocess_image(self, img_list: Image.Image) -> Image.Image:
+        return preprocess_image(img_list)
 
 
 class VggtBackbone(VggtBase):

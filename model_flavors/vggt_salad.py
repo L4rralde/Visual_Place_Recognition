@@ -11,7 +11,6 @@ from vpr.models.backbones.vggt import VggtBackbone, load_pretrained_vggt
 from vpr.models import SALAD
 from utils import LightningLog
 from submodules.vggt.vggt.utils.load_fn import load_and_preprocess_images
-from submodules.vggt.vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
 
 class VggtSalad(nn.Module):
@@ -78,7 +77,7 @@ class VggtSalad(nn.Module):
             with torch.amp.autocast(DEVICE, dtype=dtype):
                 predictions = self.forward(images)
 
-        extrinsic, intrinsic = pose_encoding_to_extri_intri(
+        extrinsic, intrinsic = self.backbone.pose_encoding_to_extri_intri(
             predictions["pose_enc"],
             images.shape[-2:]
         )
