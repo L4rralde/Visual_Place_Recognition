@@ -7,14 +7,14 @@ import torch.nn as nn
 import numpy as np
 from addict import Dict
 
+
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from depth_anything_3.api import DepthAnything3
 from depth_anything_3.specs import Prediction
 from depth_anything_3.model.dinov2.vision_transformer import DinoVisionTransformer
 from depth_anything_3.model.da3 import DepthAnything3Net
 
-
-#FOR COMPARISON
-#save_dir = '/media/emmanuel/nvme_storage/da3_salad_data'
 
 def da3_from_pretained(model_name: str, **kwargs) -> DepthAnything3:
     return DepthAnything3.from_pretrained(f"depth-anything/{model_name}")
