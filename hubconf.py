@@ -26,6 +26,18 @@ _da3_giant_config_postfix = _Config(
     url="https://github.com/L4rralde/Visual_Place_Recognition/releases/download/Da3_Salad_fix_weights/da3_salad_giant.pth"
 )
 
+_da3_giantp_config_postfix = _Config(
+    backbone_arch='da3-giant',
+    backbone_config={"return_token": True},
+    salad_config={
+        "cluster_dim": 128,
+        "hidden_dim": 1024,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url="https://github.com/L4rralde/Visual_Place_Recognition/releases/download/Da3_Salad_fix_weights/da3_salad_giant_p.pth"
+)
+
 _da3_giant_config = _Config(
     backbone_arch='da3-giant',
     backbone_config={"return_token": True},
@@ -100,6 +112,9 @@ def _da3_salad(config: _Config, vpr_repo_path, **kwargs) -> torch.nn.Module:
 
     return da3_salad
 
+
+def da3_salad_giantp_postfix(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    return _da3_salad(_da3_giantp_config_postfix, vpr_repo_path, **kwargs)
 
 def da3_salad_giant_postfix(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     return _da3_salad(_da3_giant_config_postfix, vpr_repo_path, **kwargs)
