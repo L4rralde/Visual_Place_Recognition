@@ -120,7 +120,7 @@ class DepthAnything3Backbone(nn.Module):
             x = self.dino.process_attention(x, blk, 'local', pos=l_pos)
 
             if i in export_feat_layers:
-                aux_output.append(x)
+                aux_output.append(x.clone())
         return x, aux_output
 
     def _alt_attend(self, x, batch_shape: Tuple[int], n=1, export_feat_layers=[], **kwargs):
@@ -161,7 +161,7 @@ class DepthAnything3Backbone(nn.Module):
                 out_x = torch.cat([local_x, x], dim=-1) if self.dino.cat_token else x
                 output.append((out_x[:, :, 0], out_x))
             if i in export_feat_layers:
-                aux_output.append(x)
+                aux_output.append(x.clone())
         return output, aux_output
 
     def _alt_attend_feats(self, outputs: torch.Tensor) -> Tuple[torch.Tensor]:
