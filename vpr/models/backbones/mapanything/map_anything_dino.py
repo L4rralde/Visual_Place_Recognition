@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from dataclasses import asdict
 import gc
 
@@ -20,18 +20,116 @@ from mapanything.utils.inference import(
 #What's next?
 
 
+def load_pretrained_mapanything() -> MapAnything:
+    return MapAnything.from_pretrained("facebook/map-anything")
+
+
+class MapAnythingBase(nn.Module):
+    PATCH_SIZE = 14
+    def __init__(self, map_anything: MapAnything, **kwargs):
+        super().__init__()
+        if 'num_trainable_blocks' in kwargs:
+            print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
+        self.norm_layer = kwargs.get('norm_layer', True)
+        assert self.norm_layer, "Feature not implemented yet. Norm layer must be always true"
+        self.num_channels = map_anything.encoder.model.embed_dim
+        self._map_anything: MapAnything|None = None
+        self._dino: DINOv2Encoder|None = None
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA must be available")
+        self.device = 'cuda'
+    
+    @property
+    def map_anything(self) -> MapAnything:
+        if self._map_anything is None:
+            raise RuntimeError("self.map_anything is not available in this class")
+        return self._map_anything
+
+    @property
+    def dino(self) -> DINOv2Encoder:
+        if self._dino is not None:
+            return self._dino
+        if self._map_anything is not None:
+            return self._map_anything.encoder
+        raise RuntimeError("self.dino is not set in this class")
+
+    def inference(self, img_path_list: List[str]) -> Dict:
+        amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        views = load_images(img_path_list) #Here the preprocessing takes place
+
+        validated_views = validate_input_views_for_inference(views) #When only images are passed, this does nothing.
+
+        # Transfer the views to the same device as the model
+        ignore_keys = set(
+            [
+                "instance",
+                "idx",
+                "true_shape",
+                "data_norm_type",
+            ]
+        )
+
+        #When obly images are passed, this does view['image'] = view['image'].to(self.device)
+        for view in validated_views: #Send some inputs to device
+            for name in view.keys():
+                if name in ignore_keys:
+                    continue
+                val = view[name]
+                if name == "camera_poses" and isinstance(val, tuple): #Won't happen
+                    view[name] = tuple(
+                        x.to(self.device, non_blocking=True) for x in val
+                    )
+                elif hasattr(val, "to"): #Meh
+                    view[name] = val.to(self.device, non_blocking=True)
+
+        # Pre-process the input views
+        processed_views = preprocess_input_views_for_inference(validated_views) #This one does not modify the images
+
+        # Set the model input probabilities based on input args for ignoring inputs
+        self.map_anything._configure_geometric_input_config(
+            use_calibration=True,
+            use_depth=True,
+            use_pose=True,
+            use_depth_scale=True,
+            use_pose_scale=True,
+        )
+
+        # Run the model
+        with torch.no_grad():
+            with torch.autocast("cuda", enabled=True, dtype=amp_dtype):
+                preds = self.forward(
+                    processed_views,
+                    memory_efficient_inference=True,
+                    minibatch_size=None,
+                )
+
+        # Post-process the model outputs (including multi-view confidence if requested)
+        preds = postprocess_model_outputs_for_inference( #Check if this could drop patch tokens/ descriptor
+            raw_outputs=preds,
+            input_views=processed_views,
+        )
+
+        # Restore the original configuration
+        self.map_anything._restore_original_geometric_input_config()
+
+        return preds
+
+    def forward(self) -> None:
+        pass
+
+
 class MapAnythingBackbone(nn.Module):
     def __init__(self, model: MapAnything, **kwargs) -> None:
         self.mapanything: MapAnything = model
-        self.mapanything.use_register_tokens_from_encoder = True
+        self.mapanything.use_register_tokens_from_encoder = True #THis is the easiest way to access to dino cls token
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA must be available")
         self.device = 'cuda'
 
-    @staticmethod
-    def from_pretrained(**kwargs):
+    @classmethod
+    def from_pretrained(cls, **kwargs):
         model = MapAnything.from_pretrained("facebook/map-anything")
-        backbone = MapAnythingBackbone(model, **kwargs)
+        backbone = cls(model, **kwargs)
         return backbone
 
     def inference(self, images: list) -> dict:
@@ -149,62 +247,6 @@ class MapAnythingBackbone(nn.Module):
         return all_encoder_features_across_views, all_encoder_registers_across_views
 
 
-#This is how dinov2 encoder is used
-def forward(self, encoder_input: ViTEncoderInput) -> ViTEncoderOutput:
-        """
-        DINOv2 Encoder Forward Pass
-
-        Args:
-            encoder_input (ViTEncoderInput): Input data for the encoder. Input data must contain image normalization type and normalized image tensor.
-
-        Returns:
-            ViTEncoderOutput: Output data from the encoder.
-        """
-        # Check image normalization type
-        self._check_data_normalization_type(encoder_input.data_norm_type)
-
-        # Check the dtype and shape of the input image
-        assert isinstance(encoder_input.image, torch.Tensor), "Input must be a torch.Tensor"
-        assert encoder_input.image.ndim == 4, "Input must be of shape (B, C, H, W)"
-        batch_size, channels, height, width = encoder_input.image.shape
-        assert channels == 3, "Input must have 3 channels"
-        assert (
-            height % self.patch_size == 0 and width % self.patch_size == 0
-        ), f"Input shape must be divisible by patch size: {self.patch_size}"
-
-        # Extract the features from the DINOv2 model
-        result_dict = self.model.forward_features(encoder_input.image)
-
-        # Patch tokens
-        features = result_dict["x_norm_patchtokens"]
-
-        # Resize the features to the expected shape
-        # (B x Num_patches x Embed_dim) -> (B x Embed_dim x H / Patch_Size x W / Patch_Size)
-        features = features.permute(0, 2, 1)
-        features = features.reshape(
-            -1, self.enc_embed_dim, height // self.patch_size, width // self.patch_size
-        ).contiguous()
-
-        # Additional registers (including cls token) if present
-        additional_registers = []
-
-        # Add the cls token
-        cls_token = result_dict["x_norm_clstoken"].unsqueeze(1)  # (B x 1 x Embed_dim)
-        additional_registers.append(cls_token)
-
-        # Add the registers
-        registers = result_dict["x_norm_regtokens"]
-        if registers is not None:
-            additional_registers.append(registers)
-
-        all_registers = torch.cat(additional_registers, dim=1) if len(additional_registers) > 0 else None
-        if all_registers is not None:
-            all_registers = all_registers.permute(0, 2, 1).contiguous()  # (B x Embed_dim x Num_registers)
-
-        return ViTEncoderOutput(features=features, registers=all_registers)
-
-
-
 class MapAnythingDino(nn.Module):
     def __init__(self, map_anything: MapAnything, **kwargs) -> None:
         super().__init__()
@@ -246,7 +288,8 @@ class MapAnythingDino(nn.Module):
             image=images, data_norm_type=data_norm_type
         )
         with torch.no_grad():
-            encoder_output = self._dino(encoder_input)
+            #If want access to no normalized tokens, must modify/implement self._dino: DINOv2Encoder forward method
+            encoder_output = self._dino(encoder_input) 
         f, t = self.prepare_tokens_for_salad(encoder_output)
         return f, t
 
