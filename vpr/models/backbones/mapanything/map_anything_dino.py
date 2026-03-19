@@ -1,6 +1,10 @@
+from typing import List, Tuple
+from dataclasses import asdict
+import gc
+
 import torch
 import torch.nn as nn
-from uniception.models.encoders import ViTEncoderInput, ViTEncoderOutput
+from uniception.models.encoders import ViTEncoderInput, ViTEncoderOutput, DINOv2Encoder
 
 import os, sys
 sys.path.append(os.path.dirname(__file__))
@@ -20,6 +24,9 @@ class MapAnythingBackbone(nn.Module):
     def __init__(self, model: MapAnything, **kwargs) -> None:
         self.mapanything: MapAnything = model
         self.mapanything.use_register_tokens_from_encoder = True
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA must be available")
+        self.device = 'cuda'
 
     @staticmethod
     def from_pretrained(**kwargs):
@@ -31,7 +38,7 @@ class MapAnythingBackbone(nn.Module):
         amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         views = load_images(images) #Here the preprocessing takes place
 
-        validated_views = validate_input_views_for_inference(views)
+        validated_views = validate_input_views_for_inference(views) #When only images are passed, this does nothing.
 
         # Transfer the views to the same device as the model
         ignore_keys = set(
@@ -42,7 +49,9 @@ class MapAnythingBackbone(nn.Module):
                 "data_norm_type",
             ]
         )
-        for view in validated_views:
+
+        #When obly images are passed, this does view['image'] = view['image'].to(self.device)
+        for view in validated_views: #Send some inputs to device
             for name in view.keys():
                 if name in ignore_keys:
                     continue
@@ -98,6 +107,9 @@ class MapAnythingBackbone(nn.Module):
         )
         assert all_encoder_registers_across_views is not None, "We need that data"
         #all_encoder_features: Includes all feature tokens. all_encoder_registers_acrros_views[0] includes the cls token.
+        print(all_encoder_registers_across_views)
+        
+
 
     def _encode_n_views(self, views):
         """
@@ -120,6 +132,7 @@ class MapAnythingBackbone(nn.Module):
             image=all_imgs_across_views, data_norm_type=data_norm_type
         )
         encoder_output = self.mapanything.encoder(encoder_input)
+        print(asdict(encoder_output).keys())
         all_encoder_features_across_views = encoder_output.features.chunk(
             num_views, dim=0
         )
@@ -197,3 +210,52 @@ class ViTEncoderOutput(EncoderOutput):
 
     features: Float[Tensor, "batch enc_embed_dim feat_height feat_width"] #Tensor of shape Batch_size, embed_dim, H (number of patches in y axis), W
     registers: Optional[Float[Tensor, "batch enc_embed_dim num_registers"]] = None #Tensor of shape Batch_size, embed_dim, jnum_registers  ... Where is the class token?
+
+
+
+class MapAnythingDino(nn.Module):
+    def __init__(self, map_anything: MapAnything, **kwargs) -> None:
+        super().__init__()
+        if 'num_trainable_blocks' in kwargs:
+            print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
+        self.norm_layer: nn.Module = kwargs.get('norm_layer', True)
+        assert self.norm_layer, "By the moment this feature has not been implemented yet"
+        self.num_channles: int = map_anything.encoder.model.embed_dim
+        self._dino: DINOv2Encoder = map_anything.encoder #dinov2 from uniception. Which actually instantiates dinov2 from meta
+        #Actual dino: map_anything.encoder.model
+
+    @classmethod
+    def from_pretrained(cls, **kwargs):
+        map_anything = MapAnything.from_pretrained("facebook/map-anything")
+        full_state = map_anything.state_dict()
+        
+        prefix = "encoder."
+        dino_state = {
+            k: v for k, v in full_state.items()
+            if k.startswith(prefix)
+        }
+        keys = map_anything.load_state_dict(dino_state, strict=False)
+        backbone = cls(map_anything, **kwargs)
+
+        del full_state
+        del map_anything
+        del dino_state
+        gc.collect()
+    
+        return backbone
+    
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        n, c, h, w = images.shape
+        assert c == 3, "Wrong input shape"
+
+        data_norm_type = "dinov2"
+        encoder_input = ViTEncoderInput(
+            image=images, data_norm_type=data_norm_type
+        )
+        with torch.no_grad():
+            encoder_output = self._dino(encoder_input)
+        f, t = self.prepare_tokens_for_salad(encoder_output)
+        return f, t
+
+    def prepare_tokens_for_salad(self, encoder_output: ViTEncoderOutput) -> Tuple[torch.Tensor, torch.Tensor]:
+        return encoder_output.features, encoder_output.registers
