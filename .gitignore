@@ -5,3 +5,5 @@ Untitled*
 *.npz
 exps
 *.log
+output
+.vscode
