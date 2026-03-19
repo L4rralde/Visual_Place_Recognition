@@ -16,8 +16,9 @@ from mapanything.utils.cropping import crop_resize_if_necessary
 def preprocess_images(
     img_list: List[PIL.Image.Image]|PIL.Image.Image,
     size: int=518,
-    resize_mode: str="fixed_mapping"
-    ):
+    resize_mode: str="fixed_mapping",
+    augment: bool=False
+):
     patch_size = 14
     valid_resize_modes = {"fixed_mapping", "fixed_size"}
     if resize_mode not in valid_resize_modes:
@@ -51,9 +52,12 @@ def preprocess_images(
     average_aspect_ratio = sum(aspect_ratios)/len(aspect_ratios)
 
     if resize_mode == "fixed_mapping":
+        scale_factor = 518.0/size
         target_width, target_height = find_closest_aspect_ratio(
-            average_aspect_ratio, size
+            average_aspect_ratio, 518
         )
+        target_width = round(target_width/(scale_factor * patch_size)) * patch_size
+        target_height = round(target_height/(scale_factor * patch_size)) * patch_size
         target_size = (target_width, target_height)
     elif resize_mode == "fixed_size":
         # Use exact size provided, aligned to patch_size
@@ -65,28 +69,37 @@ def preprocess_images(
         RuntimeError("Something went wrong. Unsopported resize_mode")
     
     img_norm = IMAGE_NORMALIZATION_DICT[norm_type]
-    ImgNorm = tvf.Compose(
-        [tvf.ToTensor(), tvf.Normalize(mean=img_norm.mean, std=img_norm.std)]
-    )
+
+    if augment:
+        ImgNorm = tvf.Compose([
+            tvf.RandAugment(num_ops=3, interpolation=tvf.InterpolationMode.BILINEAR),
+            tvf.ToTensor(),
+            tvf.Normalize(mean=img_norm.mean, std=img_norm.std)
+        ])
+    else:
+        ImgNorm = tvf.Compose(
+            [tvf.ToTensor(), tvf.Normalize(mean=img_norm.mean, std=img_norm.std)]
+        )
 
     imgs = []
     for img, W1, H1 in loaded_images:
         # Resize and crop the image to the target size
         img = crop_resize_if_necessary(img, resolution=target_size)[0]
 
-        imgs.append(ImgNorm(img)[None])
+        imgs.append(ImgNorm(img))
     if is_single_img:
         return imgs[0]
     return imgs
 
 
 class MapAnythingTransform:
-    def __init__(self, img_size: int=518, mode: str="fixed_mapping"):
+    def __init__(self, img_size: int=518, mode: str="fixed_mapping", augment: bool=False):
         self.img_size = img_size
         self.mode = mode
+        self.augment = augment
     
     def __call__(self, img: PIL.Image.Image) -> PIL.Image.Image:
-        return preprocess_images(img, self.img_size, self.mode)
+        return preprocess_images(img, self.img_size, self.mode, self.augment)
 
 
 def get_transforms(input_config: dict) -> Tuple[Callable, Callable]:
@@ -98,12 +111,7 @@ def get_transforms(input_config: dict) -> Tuple[Callable, Callable]:
         if not isinstance(img_size, (tuple, list)) or not len(img_size) == 2:
             raise ValueError("When using mode 'fixed_size', a list of two integers is expected")
     
-    resize = MapAnythingTransform(img_size, mode) #Already transforms to tensor.
-    train_transform = tvf.Compose([
-        resize, #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
-        tvf.RandAugment(num_ops=3, interpolation=tvf.InterpolationMode.BILINEAR),
-    ])
-    valid_transform = resize #Bug: https://github.com/L4rralde/Visual_Place_Recognition/issues/1?reload=1
-
+    valid_transform = MapAnythingTransform(img_size, mode)
+    train_transform = MapAnythingTransform(img_size, mode, augment=True)
 
     return train_transform, valid_transform

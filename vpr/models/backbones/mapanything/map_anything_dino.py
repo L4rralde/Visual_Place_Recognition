@@ -204,14 +204,6 @@ def forward(self, encoder_input: ViTEncoderInput) -> ViTEncoderOutput:
         return ViTEncoderOutput(features=features, registers=all_registers)
 
 
-@dataclass
-class ViTEncoderOutput(EncoderOutput):
-    "Data class for Vision Transformer Encoder Output"
-
-    features: Float[Tensor, "batch enc_embed_dim feat_height feat_width"] #Tensor of shape Batch_size, embed_dim, H (number of patches in y axis), W
-    registers: Optional[Float[Tensor, "batch enc_embed_dim num_registers"]] = None #Tensor of shape Batch_size, embed_dim, jnum_registers  ... Where is the class token?
-
-
 
 class MapAnythingDino(nn.Module):
     def __init__(self, map_anything: MapAnything, **kwargs) -> None:
@@ -220,7 +212,7 @@ class MapAnythingDino(nn.Module):
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         self.norm_layer: nn.Module = kwargs.get('norm_layer', True)
         assert self.norm_layer, "By the moment this feature has not been implemented yet"
-        self.num_channles: int = map_anything.encoder.model.embed_dim
+        self.num_channels: int = map_anything.encoder.model.embed_dim
         self._dino: DINOv2Encoder = map_anything.encoder #dinov2 from uniception. Which actually instantiates dinov2 from meta
         #Actual dino: map_anything.encoder.model
 
@@ -240,6 +232,7 @@ class MapAnythingDino(nn.Module):
         del full_state
         del map_anything
         del dino_state
+        torch.cuda.empty_cache()
         gc.collect()
     
         return backbone
@@ -258,4 +251,5 @@ class MapAnythingDino(nn.Module):
         return f, t
 
     def prepare_tokens_for_salad(self, encoder_output: ViTEncoderOutput) -> Tuple[torch.Tensor, torch.Tensor]:
-        return encoder_output.features, encoder_output.registers
+        f, t = encoder_output.features, encoder_output.registers
+        return f, t.squeeze(-1)

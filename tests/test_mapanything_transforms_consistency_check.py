@@ -36,7 +36,7 @@ def compare_transforms(dataset: ImgDirDataset, num_seeds: int=1, max_batch_size:
         ]
 
         selected_paths = [path for _, path in selected_imgs]
-        t_selected_imgs = torch.cat([img for img, _ in selected_imgs])
+        t_selected_imgs = torch.cat([img.unsqueeze(0) for img, _ in selected_imgs])
         
         if dataset.transform.mode == 'fixed_size':
             ref_views = load_images(selected_paths, resize_mode='fixed_size', size=dataset.transform.img_size)
