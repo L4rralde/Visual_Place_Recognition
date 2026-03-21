@@ -5,7 +5,9 @@ import torch
 import torch.nn as nn
 from uniception.models.encoders import ViTEncoderInput, DINOv2Encoder
 from uniception.models.info_sharing.base import MultiViewTransformerInput
+from PIL import Image
 
+from .transforms import preprocess_images
 import os, sys
 sys.path.append(os.path.dirname(__file__))
 from mapanything.models import MapAnything
@@ -122,6 +124,9 @@ class MapAnythingBase(nn.Module):
         for i in range(len(views)):
             imgs[i] = views[i]["img"]
         return imgs
+
+    def preprocess_images(self, pil_img_list: List[Image.Image]) -> torch.Tensor:
+        return preprocess_images(pil_img_list)
 
 
 class MapAnythingBackbone(MapAnythingBase):
