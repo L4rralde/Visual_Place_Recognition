@@ -94,6 +94,17 @@ _vggt_config = _Config(
     url=f"{DOWNLOAD_URL}/vggt_salad.pth"
 )
 
+_mapanything_config = _Config(
+    backbone_arch='map_anything',
+    backbone_config={"return_token": True},
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url="https://github.com/L4rralde/Visual_Place_Recognition/releases/download/mapanything_salad/mapanything_salad.pth"
+)
+
 
 def _da3_salad(config: _Config, vpr_repo_path, **kwargs) -> torch.nn.Module:
     if vpr_repo_path not in sys.path:
@@ -152,3 +163,22 @@ def vggt_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     vggt_salad.aggregator.load_state_dict(salad_state_dict)
 
     return vggt_salad
+
+
+def mapanything_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    if vpr_repo_path not in sys.path:
+        sys.path.insert(0, vpr_repo_path)
+        sys.path.insert(0, os.path.join(vpr_repo_path, "submodules", "map-anything"))
+    from model_flavors.mapanything_salad import MapAnythingSalad
+    from vpr.models.backbones.mapanything import load_pretrained_mapanything
+
+    backbone_arch = _mapanything_config.backbone_arch
+    backbone_config = _mapanything_config.backbone_config
+    salad_config = _mapanything_config.salad_config
+    mapanything = load_pretrained_mapanything()
+    mapanything_salad = MapAnythingSalad(mapanything, backbone_config, salad_config)
+    url = _mapanything_config.url
+    salad_state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu')
+    mapanything_salad.aggregator.load_state_dict(salad_state_dict)
+
+    return mapanything_salad
