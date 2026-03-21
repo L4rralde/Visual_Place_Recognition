@@ -3,7 +3,6 @@ import gc
 
 import torch
 import torch.nn as nn
-import numpy as np
 
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -15,8 +14,6 @@ from vpr.models.backbones.mapanything import(
 from vpr.models import SALAD
 from utils import LightningLog
 from vpr.models.backbones.mapanything.mapanything.utils.inference import(
-    validate_input_views_for_inference,
-    preprocess_input_views_for_inference,
     postprocess_model_outputs_for_inference
 )
 
@@ -96,44 +93,9 @@ class MapAnythingSalad(nn.Module):
     def inference(self, img_path_list: List[str]) -> Dict:
         amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         views = load_images(img_path_list) #Here the preprocessing takes place
+        views = self.backbone.prepare_views(views)
 
-        validated_views = validate_input_views_for_inference(views) #When only images are passed, this does nothing.
-        # Transfer the views to the same device as the model
-        ignore_keys = set(
-            [
-                "instance",
-                "idx",
-                "true_shape",
-                "data_norm_type",
-            ]
-        )
-
-        #When obly images are passed, this does view['image'] = view['image'].to(self.device)
-        for view in validated_views: #Send some inputs to device
-            for name in view.keys():
-                if name in ignore_keys:
-                    continue
-                val = view[name]
-                if name == "camera_poses" and isinstance(val, tuple): #Won't happen
-                    view[name] = tuple(
-                        x.to(self.backbone.device, non_blocking=True) for x in val
-                    )
-                elif hasattr(val, "to"): #Meh
-                    view[name] = val.to(self.backbone.device, non_blocking=True)
-
-        # Pre-process the input views
-        processed_views = preprocess_input_views_for_inference(validated_views) #This one does not modify the images
-
-        # Set the model input probabilities based on input args for ignoring inputs
-        self.backbone._map_anything._configure_geometric_input_config(
-            use_calibration=True,
-            use_depth=True,
-            use_pose=True,
-            use_depth_scale=True,
-            use_pose_scale=True,
-        )
-
-        imgs = self.backbone.imgs_tensor_from_views(processed_views)
+        imgs = self.backbone.imgs_tensor_from_views(views)
 
         # Run the model
         with torch.no_grad():
@@ -143,11 +105,8 @@ class MapAnythingSalad(nn.Module):
         # Post-process the model outputs (including multi-view confidence if requested)
         preds = postprocess_model_outputs_for_inference( #Check if this could drop patch tokens/ descriptor
             raw_outputs=preds,
-            input_views=processed_views,
+            input_views=views,
             edge_normal_threshold=5.0
         )
-
-        # Restore the original configuration
-        self.backbone._map_anything._restore_original_geometric_input_config()
 
         return preds

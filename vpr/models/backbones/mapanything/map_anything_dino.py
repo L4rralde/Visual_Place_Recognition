@@ -3,18 +3,14 @@ import gc
 
 import torch
 import torch.nn as nn
-from uniception.models.encoders import ViTEncoderInput, ViTEncoderOutput, DINOv2Encoder
+from uniception.models.encoders import ViTEncoderInput, DINOv2Encoder
 from uniception.models.info_sharing.base import MultiViewTransformerInput
 
 import os, sys
 sys.path.append(os.path.dirname(__file__))
 from mapanything.models import MapAnything
 from mapanything.utils.image import load_images
-from mapanything.utils.inference import(
-    validate_input_views_for_inference,
-    preprocess_input_views_for_inference,
-    postprocess_model_outputs_for_inference
-)
+from mapanything.utils.inference import postprocess_model_outputs_for_inference
 from mapanything.utils.geometry import convert_ray_dirs_depth_along_ray_pose_trans_quats_to_pointmap
 
 #This is quite more complicated than vggt.
@@ -136,47 +132,25 @@ class MapAnythingBackbone(MapAnythingBase):
         map_anything = load_pretrained_mapanything()
         return cls(map_anything, **kwargs)
 
+    def prepare_views(self, views: Dict[str, Any]) -> Dict[str, Any]:
+        for view in views:
+            view['img'] = view['img'].to(self.device, non_blocking=True)
+
+        for view in views:
+            view["is_metric_scale"] = torch.ones(
+                view['img'].shape[0],
+                dtype=torch.bool,
+                device=self.device
+            )
+        
+        return views
+
     def inference(self, img_path_list: List[str]) -> Dict:
         amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         views = load_images(img_path_list) #Here the preprocessing takes place
+        views = self.prepare_views(views)
 
-        validated_views = validate_input_views_for_inference(views) #When only images are passed, this does nothing.
-        # Transfer the views to the same device as the model
-        ignore_keys = set(
-            [
-                "instance",
-                "idx",
-                "true_shape",
-                "data_norm_type",
-            ]
-        )
-
-        #When obly images are passed, this does view['image'] = view['image'].to(self.device)
-        for view in validated_views: #Send some inputs to device
-            for name in view.keys():
-                if name in ignore_keys:
-                    continue
-                val = view[name]
-                if name == "camera_poses" and isinstance(val, tuple): #Won't happen
-                    view[name] = tuple(
-                        x.to(self.device, non_blocking=True) for x in val
-                    )
-                elif hasattr(val, "to"): #Meh
-                    view[name] = val.to(self.device, non_blocking=True)
-
-        # Pre-process the input views
-        processed_views = preprocess_input_views_for_inference(validated_views) #This one does not modify the images
-
-        # Set the model input probabilities based on input args for ignoring inputs
-        self._map_anything._configure_geometric_input_config(
-            use_calibration=True,
-            use_depth=True,
-            use_pose=True,
-            use_depth_scale=True,
-            use_pose_scale=True,
-        )
-
-        imgs = self.imgs_tensor_from_views(processed_views)
+        imgs = self.imgs_tensor_from_views(views)
 
         # Run the model
         with torch.no_grad():
@@ -184,14 +158,11 @@ class MapAnythingBackbone(MapAnythingBase):
                 preds = self.forward(imgs)
 
         # Post-process the model outputs (including multi-view confidence if requested)
-        preds = postprocess_model_outputs_for_inference( #Check if this could drop patch tokens/ descriptor
+        preds = postprocess_model_outputs_for_inference( #Check if this could drop patch tokens/ descriptor. It doesnt. It keeps the raw outputs.
             raw_outputs=preds,
-            input_views=processed_views,
+            input_views=views,
             edge_normal_threshold=5.0
         )
-
-        # Restore the original configuration
-        self._map_anything._restore_original_geometric_input_config()
 
         return preds
 

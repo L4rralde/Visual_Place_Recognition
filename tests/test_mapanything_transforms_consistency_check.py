@@ -9,10 +9,6 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from vpr.models.backbones.mapanything.transforms import get_transforms
 from test_utils import ImgDirDataset
 from vpr.models.backbones.mapanything.mapanything.utils.image import load_images
-from vpr.models.backbones.mapanything.mapanything.utils.inference import(
-    validate_input_views_for_inference,
-    preprocess_input_views_for_inference,
-)
 
 
 def parse_args() -> dict:
@@ -46,34 +42,7 @@ def compare_transforms(dataset: ImgDirDataset, num_seeds: int=1, max_batch_size:
         else:
             ref_views = load_images(selected_paths)
         
-        validated_views = validate_input_views_for_inference(ref_views) #When only images are passed, this does nothing.
-        # Transfer the views to the same device as the model
-        ignore_keys = set(
-            [
-                "instance",
-                "idx",
-                "true_shape",
-                "data_norm_type",
-            ]
-        )
-
-        #When obly images are passed, this does view['image'] = view['image'].to(self.device)
-        for view in validated_views: #Send some inputs to device
-            for name in view.keys():
-                if name in ignore_keys:
-                    continue
-                val = view[name]
-                if name == "camera_poses" and isinstance(val, tuple): #Won't happen
-                    view[name] = tuple(
-                        x.to('cpu', non_blocking=True) for x in val
-                    )
-                elif hasattr(val, "to"): #Meh
-                    view[name] = val.to('cpu', non_blocking=True)
-
-        # Pre-process the input views
-        processed_views = preprocess_input_views_for_inference(validated_views) #This one does not modify the images
-
-        ref_rocessed_imgs = torch.cat([v['img'] for v in processed_views])
+        ref_rocessed_imgs = torch.cat([v['img'] for v in ref_views])
 
         diff = (ref_rocessed_imgs - t_selected_imgs).abs().sum()
 
