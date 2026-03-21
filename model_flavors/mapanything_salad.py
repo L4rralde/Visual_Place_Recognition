@@ -67,7 +67,7 @@ class MapAnythingSalad(nn.Module):
             )
         )
         
-        if len(global_descriptor.shape) == 2:
+        if len(global_descriptor.shape) == 2: #TODO. Is it required?
             global_descriptor = global_descriptor.unsqueeze(0)
         
         views = self.backbone.imgs_tensor_as_views(images)
