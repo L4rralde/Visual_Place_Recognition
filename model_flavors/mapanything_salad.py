@@ -45,20 +45,30 @@ class MapAnythingSalad(nn.Module):
         return model
     
     def forward(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
-        all_encoder_features_across_views, all_encoder_registers_across_views = (
-            self.backbone.dino_forward(images)
-        )
-        feats, cls = self.backbone.prepare_tokens_for_salad(
-            all_encoder_features_across_views,
-            all_encoder_registers_across_views
-        )
-        global_descriptor = self.aggregator((feats, cls))
-        if len(global_descriptor.shape) == 2:
-            global_descriptor = global_descriptor.unsqueeze(0)
-        
         # Get input shape of the images, number of views, and batch size per view
         num_views, c, height, width = images.shape
         img_shape = (int(height), int(width))
+
+        patch_tokens = self.backbone.dino_forward(images)
+        global_descriptor = self.aggregator(
+            self.backbone.prepare_tokens_for_salad(
+                patch_tokens,
+                height//self.backbone.PATCH_SIZE,
+                width//self.backbone.PATCH_SIZE
+            )
+        )
+
+        all_encoder_features_across_views, all_encoder_registers_across_views = (
+            self.backbone.unpack_dino_outputs(
+                patch_tokens,
+                height//self.backbone.PATCH_SIZE,
+                width//self.backbone.PATCH_SIZE
+            )
+        )
+        
+        if len(global_descriptor.shape) == 2:
+            global_descriptor = global_descriptor.unsqueeze(0)
+        
         views = self.backbone.imgs_tensor_as_views(images)
 
         # Encode the optional geometric inputs and fuse with the encoded features from the N input views.

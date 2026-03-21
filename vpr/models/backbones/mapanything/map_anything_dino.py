@@ -50,17 +50,26 @@ class MapAnythingBase(nn.Module):
             return self._map_anything.encoder
         raise RuntimeError("self.dino is not set in this class")
 
-    def prepare_tokens_for_salad(
-        self,
-        all_encoder_features_across_views: List[torch.Tensor],
-        all_encoder_registers_across_views: List[torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        f = torch.cat(all_encoder_features_across_views, dim=0)
-        t = torch.stack(
-            [r[..., 0].squeeze(0) for r in all_encoder_registers_across_views],
-            dim=0
-        )
-        return f, t
+    def prepare_tokens_for_salad(self, patch_tokens: torch.Tensor, h: int, w: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        num_views, _, dim = patch_tokens.shape
+        assert dim == self.num_channels
+        feats = patch_tokens[:, :h*w].permute(0, 2, 1).view(num_views, dim, h, w)
+        cls = patch_tokens[:, h*w]
+        return feats, cls
+
+    def unpack_dino_outputs(self, patch_tokens: torch.Tensor, h: int, w:int) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        num_views, num_tokens, dim = patch_tokens.shape
+        assert dim == self.num_channels
+        assert num_tokens >= h*w
+        features = patch_tokens[:, :h*w].permute(0, 2, 1).view(num_views, dim, h, w)
+        features = features.chunk(num_views, dim=0)
+
+        if num_tokens == h*w:
+            registers = None
+        else:
+            registers = patch_tokens[:, h*w:].permute(0, 2, 1).view(num_views, dim, -1)
+            registers = registers.chunk(num_views, dim=0)
+        return features, registers
 
     def dino_forward(self, all_imgs_across_views: torch.Tensor) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
@@ -71,9 +80,7 @@ class MapAnythingBase(nn.Module):
             views (List[dict]): List of dictionaries containing the input views' images and instance information.
 
         Returns:
-            A tuple containing:
-                List[torch.Tensor]: A list containing the encoded features for all N views.
-                List[torch.Tensor]: A list containing the encoded per-view registers for all N views.
+            torch.Tensor: Patch tokens with CLS token and registers (they don't see ot be available) from DINO
         """
         num_views, c, h, w = all_imgs_across_views.shape
         data_norm_type = 'dinov2'
@@ -82,16 +89,12 @@ class MapAnythingBase(nn.Module):
             image=all_imgs_across_views, data_norm_type=data_norm_type
         )
         encoder_output = self.dino(encoder_input)
-        all_encoder_features_across_views = encoder_output.features.chunk(
-            num_views, dim=0
-        )
-        all_encoder_registers_across_views = None
-        if encoder_output.registers is not None:
-            all_encoder_registers_across_views = encoder_output.registers.chunk(
-                num_views, dim=0
-            )
 
-        return all_encoder_features_across_views, all_encoder_registers_across_views
+        features = encoder_output.features
+        features = features.view(num_views, self.num_channels, -1).permute(0, 2, 1)
+        regs = encoder_output.registers.permute(0, 2, 1)
+        patch_tokens = torch.cat((features, regs), dim=1)
+        return patch_tokens
 
     def imgs_tensor_as_views(self, imgs: torch.Tensor) -> List[Dict[str, Any]]:
         num_views, c, height, width = imgs.shape
@@ -577,15 +580,17 @@ class MapAnythingBackbone(MapAnythingBase):
         return res
 
     def forward(self, imgs: torch.Tensor) -> Dict[str, torch.Tensor]:
-        # Run the image encoder on all the input views
-        #DIno forward
-        all_encoder_features_across_views, all_encoder_registers_across_views = (
-            self.dino_forward(imgs)
-        )
-
         # Get input shape of the images, number of views, and batch size per view
         num_views, c, height, width = imgs.shape
         img_shape = (int(height), int(width))
+
+        # Run the image encoder on all the input views
+        #DIno forward
+        patch_tokens = self.dino_forward(imgs)
+        all_encoder_features_across_views, all_encoder_registers_across_views = (
+            self.unpack_dino_outputs(patch_tokens, height//self.PATCH_SIZE, width//self.PATCH_SIZE)
+        )
+
         views = self.imgs_tensor_as_views(imgs)
 
         # Encode the optional geometric inputs and fuse with the encoded features from the N input views.
@@ -646,8 +651,9 @@ class MapAnythingDino(MapAnythingBase):
         n, c, h, w = images.shape
         assert c == 3, "Wrong input shape"
 
-        features, registers = self.dino_forward(images)
-        f, t = self.prepare_tokens_for_salad(features, registers)
+        patch_tokens = self.dino_forward(images)
+        f, t = self.prepare_tokens_for_salad(patch_tokens, h//self.PATCH_SIZE, w//self.PATCH_SIZE)
+        
         return f, t
 
 
