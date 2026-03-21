@@ -35,6 +35,9 @@ def get_backbone(
     elif 'vggt' in backbone_arch.lower():
         from .backbones.vggt import VggtDino
         backbone = VggtDino.from_pretrained(**backbone_config)
+    elif 'map_anything' in backbone_arch.lower():
+        from .backbones.mapanything import MapAnythingDino
+        backbone = MapAnythingDino.from_pretrained(**backbone_config)
     else:
         raise ValueError(f"Backbone {backbone_arch} not supported")
 
@@ -55,6 +58,9 @@ def get_transforms(backbone_arch: str, input_config: dict) -> Tuple[Callable]:
     elif 'vggt' in backbone_arch.lower():
         from .backbones.vggt import get_transforms as vggt_get_transforms
         train_transform, valid_transform = vggt_get_transforms(input_config)
+    elif 'map_anything' in backbone_arch.lower():
+        from .backbones.mapanything import get_transforms as ma_get_transforms
+        train_transform, valid_transform = ma_get_transforms(input_config)
     else:
         raise ValueError(f"Backbone {backbone_arch} not supported")
 
