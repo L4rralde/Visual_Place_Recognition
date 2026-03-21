@@ -28,10 +28,11 @@ class MapAnythingSalad(nn.Module):
         )
     
     @classmethod
-    def from_lightning_log(cls, path: str, mapanything: object|None):
+    def from_lightning_log(cls, path: str, mapanything: object|None=None):
         log = LightningLog(path)
+
         assert log.agg_arch.upper() == "SALAD", "By the moment only SALAD is supported"
-        assert log.backbone_arch.upper() == "MAPANYTHING", "This log might not correspond to mapanything-salad"
+        assert log.backbone_arch.upper() == "MAP_ANYTHING", "This log might not correspond to mapanything-salad"
         if mapanything is None:
             mapanything = load_pretrained_mapanything()
         model = MapAnythingSalad(mapanything, log.backbone_config, log.agg_config)
