@@ -7,8 +7,9 @@ This repo contains code to train SALAD with DINOv2/DINOv3 backbones.
 
 | Model         | Backbone            | Patch Size | Embedding Dim | Hidden Dim | Pitts30k-val R1 | Pitts30k-val R5 | Ckpt size |
 | ------------- | ------------------- | ---------- | ------------- | ---------- | --------------- | --------------- | --------- |
+|**MapAnything-SALAD**|`mapanything` (ViT-G)| 14         | 1536          | **512**    | 0.93            | 0.98            |   9.88MB  | 
 | **VGGT-SALAD**      | `vggt` (ViT-L)      | 14         | 1024          | **512**    | 0.92            | 0.98            |   6.89MB  |
-| **DA3-SALAD Giant** | `da3-giant` (ViT-g) | 14         | 1536          | **1024**   | 0.89            | 0.96            |  19.80MB  |
+| **DA3-SALAD Giant** | `da3-giant` (ViT-G) | 14         | 1536          | **1024**   | 0.89            | 0.96            |  19.80MB  |
 | **DA3-SALAD Large** | `da3-large` (ViT-L) | 14         | 1024          | **512**    | 0.84            | 0.93            |   6.89MB  |
 | **DA3-SALAD Base**  | `da3-base` (ViT-B)  | 14         | 768           | **512**    | 0.87            | 0.95            |   5.39MB  |
 | **DA3-SALAD Small** | `da3-small` (ViT-S) | 14         | 384           | **512**    | 0.84            | 0.94            |   3.14MB  |
@@ -25,7 +26,7 @@ model = torch.hub.load(
 )
 ```
 
-Model names: `vggt_salad`, `da3_salad_giant`, `da3_salad_large`, `da3_salad_base`, `da3_salad_small`.
+Model names: `mapanything_salad`, `vggt_salad`, `da3_salad_giant`, `da3_salad_large`, `da3_salad_base`, `da3_salad_small`.
 
 
 
