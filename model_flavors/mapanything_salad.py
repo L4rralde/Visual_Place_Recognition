@@ -67,9 +67,6 @@ class MapAnythingSalad(nn.Module):
             )
         )
         
-        if len(global_descriptor.shape) == 2: #TODO. Is it required?
-            global_descriptor = global_descriptor.unsqueeze(0)
-        
         views = self.backbone.imgs_tensor_as_views(images)
 
         # Encode the optional geometric inputs and fuse with the encoded features from the N input views.
@@ -97,7 +94,7 @@ class MapAnythingSalad(nn.Module):
         )
 
         for item, descriptor in zip(res, global_descriptor):
-            item['decriptor'] = descriptor
+            item['descriptor'] = descriptor.unsqueeze(0)
 
         return res
 
