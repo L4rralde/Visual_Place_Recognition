@@ -126,7 +126,13 @@ class MapAnythingBase(nn.Module):
         return imgs
 
     def preprocess_images(self, pil_img_list: List[Image.Image]) -> torch.Tensor:
-        return preprocess_images(pil_img_list)
+        if not isinstance(pil_img_list, list) :
+            raise TypeError(f"input must be a list of tensors.")
+        tensor_img_list = preprocess_images(pil_img_list)
+        return torch.cat(
+            [img.unsqueeze(0) for img in tensor_img_list],
+            dim=0
+        )
 
 
 class MapAnythingBackbone(MapAnythingBase):
