@@ -109,7 +109,11 @@ class MapAnythingBase(nn.Module):
                 'idx': i,
                 'instance': i,
                 'data_norm_type': ['dinov2'],
-                'is_metric_scale_tensor': torch.Tensor([True]).to(imgs.device)
+                'is_metric_scale_tensor': torch.ones(
+                    (1, ),
+                    dtype=torch.bool,
+                    device=self.device
+                )
             }
             for i in range(num_views)
         ]
