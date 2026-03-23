@@ -13,9 +13,6 @@ from vpr.models.backbones.mapanything import(
 )
 from vpr.models import SALAD
 from utils import LightningLog
-from vpr.models.backbones.mapanything.mapanything.utils.inference import(
-    postprocess_model_outputs_for_inference
-)
 
 
 class MapAnythingSalad(nn.Module):
@@ -109,12 +106,8 @@ class MapAnythingSalad(nn.Module):
         with torch.no_grad():
             with torch.autocast("cuda", enabled=True, dtype=amp_dtype):
                 preds = self.forward(imgs)
-
+        
         # Post-process the model outputs (including multi-view confidence if requested)
-        preds = postprocess_model_outputs_for_inference( #Check if this could drop patch tokens/ descriptor
-            raw_outputs=preds,
-            input_views=views,
-            edge_normal_threshold=5.0
-        )
+        preds = self.backbone.postprocess_model_outputs_for_inference(preds, views)
 
         return preds

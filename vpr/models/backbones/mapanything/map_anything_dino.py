@@ -138,6 +138,20 @@ class MapAnythingBase(nn.Module):
             dim=0
         )
 
+    @staticmethod
+    def postprocess_model_outputs_for_inference(
+        raw_outputs: List[Dict[str, torch.Tensor]],
+        input_views: List[Dict[str, Any]],
+        edge_normal_threshold: float=5.0,
+        **kwargs
+    ) -> List[Dict[str, torch.Tensor]]:
+        with torch.autocast('cuda', enabled=False):
+            return postprocess_model_outputs_for_inference(
+                raw_outputs=raw_outputs,
+                input_views=input_views,
+                edge_normal_threshold=edge_normal_threshold,
+                **kwargs
+            )
 
 class MapAnythingBackbone(MapAnythingBase):
     def __init__(self, map_anything, **kwargs):
@@ -176,11 +190,7 @@ class MapAnythingBackbone(MapAnythingBase):
                 preds = self.forward(imgs)
 
         # Post-process the model outputs (including multi-view confidence if requested)
-        preds = postprocess_model_outputs_for_inference( #Check if this could drop patch tokens/ descriptor. It doesnt. It keeps the raw outputs.
-            raw_outputs=preds,
-            input_views=views,
-            edge_normal_threshold=5.0
-        )
+        preds = self.postprocess_model_outputs_for_inference(preds, views)
 
         return preds
 
