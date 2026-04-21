@@ -1,5 +1,5 @@
 #define: &process_res 518 #This is the largest dimension.
-define: &process_res 294
+define: &process_res 378
 
 backbone_arch: "map_anything"
 

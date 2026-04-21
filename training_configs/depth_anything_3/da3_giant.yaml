@@ -1,4 +1,5 @@
-define: &process_res 252 #This is the largest dimension.
+#504 is the resolution used at test time
+define: &process_res 364 #This is the largest dimension.
 
 backbone_arch: "da3-giant"
 
