@@ -1,0 +1,10 @@
+huggingface_hub
+hydra-core
+natsort
+opencv-python-headless==4.10.0.84
+orjson
+pillow-heif
+python-box
+safetensors
+tqdm
+uniception

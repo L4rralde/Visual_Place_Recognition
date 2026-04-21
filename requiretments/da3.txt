@@ -1,0 +1,13 @@
+omegaconf
+pillow
+opencv-python
+evo
+numpy<2
+einops
+huggingface_hub
+safetensors
+addict
+moviepy==1.0.3
+plyfile
+trimesh
+pycolmap

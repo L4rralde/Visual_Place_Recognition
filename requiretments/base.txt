@@ -1,0 +1,8 @@
+torch
+torchvision
+pandas
+prettytable
+pytorch-lightning
+pytorch-metric-learning
+torchmetrics
+faiss-cpu==1.7.2

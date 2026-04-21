@@ -1,0 +1,6 @@
+#VGGT
+Pillow
+numpy<2
+huggingface_hub
+einops
+safetensors
