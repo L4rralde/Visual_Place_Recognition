@@ -48,11 +48,56 @@ Note that moving to another computer requires me to install all dependencies, an
 
 ## Installing
 
-It's easter, I have no access to my computer to double check the requirements. I'll update this section soon. However, I must mention the installing procedure depends on the selected backbone.
+The instructions depend on the backbone you want to use.
+As April the 20th, Code for DINOv2, DINOv3, VGGT, DepthAnythingv3 and MapAnything as backbones have been developed, yet EUPE is planned.
+
+First, regardless the backbone you want to train, install base requirements in a new python virtual environment (tested on python3.10).
+
+```bash
+python3.10 -m venv salad.venv
+source salad.venv/bin/activate
+pip install -r requirements/base.txt
+```
+
+Then, install the specific requirements depending on the backbone, e.g., vggt:
+
+```bash
+pip install -r requirements/vggt.txt
+```
+
+By the moment I have added requirements for training SALAD with VGGT and DepthAnythingV3
+
+## Downloading the Datasets:
+
+For training and validation steps GSVCities and Pitts30k are required
+
+- **GSVCities**
+
+You may find it on [Kaggle](https://www.kaggle.com/datasets/amaralibey/gsv-cities).
+
+
+- **Pittsburgh 250k**
+
+Available on many websites inclusing [Kaggle](https://www.kaggle.com/datasets/duongoku/pittsburgh250k).
+Make sure pittsburgh dataset tree is correct. For instance, when downloading from kaggle and unzipping,
+you may find repeated hierarchies such as `pittsburgh/000/000` when it should be just `pittsburgh/000/`.
+Also, move `pittsburgh/netvlad_v100_datasets/datasets/` to `pittsburgh/`
+
 
 ## Training
 
+1. Set `$VPR_GIT_ROOT` environment variable:
+
+```bash
+source set_env_vars.sh
+```
+
+2. Run the trainer script. `$file` depends on the backbone you want to use and the configuration.
+You may find available training configurations in `training_configs/` directory
+
+```bash
 python train_from_yaml.py --config "$file"
+````
 
 ## TODO:
 - [X] Da3 dino class does not match da3 auxiliar outputs. They do as long we do not preprocess the inputs.
