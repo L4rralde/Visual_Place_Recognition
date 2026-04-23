@@ -38,6 +38,7 @@ class VggtBase(nn.Module):
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         self.norm_layer = kwargs.get('norm_layer', True)
+        self.probing_from_layer: int = kwargs.get('probing_from_layer', -1)
         self.num_channels = vggt.aggregator.patch_embed.embed_dim
         self._resnet_std = vggt.aggregator._resnet_std
         self._resnet_mean = vggt.aggregator._resnet_mean
@@ -217,11 +218,8 @@ class VggtBase(nn.Module):
     def prepare_tokens_for_salad(self, patch_tokens: Dict[str, torch.Tensor], images_shape: Tuple[int]) -> Tuple[torch.Tensor]:
         B, S, C_in, H, W = images_shape
 
-        if self.norm_layer:
-            f = patch_tokens['x_norm_patchtokens']
-            t = patch_tokens['x_norm_clstoken']
-        else:
-            raise RuntimeError("Not implemented yet. Work in progress.")
+        f = patch_tokens['x_norm_patchtokens']
+        t = patch_tokens['x_norm_clstoken']
         
         f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
 
@@ -250,6 +248,7 @@ class VggtDino(VggtBase):
         super().__init__(vggt, **kwargs)
         self.norm_layer = norm_layer
         self._dino = vggt.aggregator.patch_embed
+        assert self.probing_from_layer < len(self.dino.blocks)
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtDino":
@@ -294,3 +293,41 @@ class VggtDino(VggtBase):
         f, t = self.prepare_tokens_for_salad(patch_tokens, (B, S, C_in, H, W))
 
         return f, t
+
+    def dino_forward(self, images: torch.Tensor) -> torch.Tensor:
+        if len(images.shape) == 4:
+            images = images.unsqueeze(0)
+
+        B, S, C_in, H, W = images.shape
+
+        if C_in != 3:
+            raise ValueError(f"Expected 3 input channels, got {C_in}")
+
+        # Normalize images and reshape for patch embed
+        images = (images - self._resnet_mean.to('cuda')) / self._resnet_std.to('cuda')
+
+        # Reshape to [B*S, C, H, W] for patch embedding
+        images = images.view(B * S, C_in, H, W)
+        patch_tokens = self.dino_forward_features(images) #This is all we need.
+
+        return patch_tokens
+
+    def dino_forward_features(self, x, masks=None):
+        x = self.dino.prepare_tokens_with_masks(x, masks)
+        for i, blk in enumerate(self.dino.blocks):
+            x = blk(x)
+            if i == self.probing_from_layer:
+                break
+        
+        if self.norm_layer:
+            x_norm = self.dino.norm(x)
+        else:
+            x_norm = x
+        
+        return {
+            "x_norm_clstoken": x_norm[:, 0],
+            "x_norm_regtokens": x_norm[:, 1 : self.dino.num_register_tokens + 1],
+            "x_norm_patchtokens": x_norm[:, self.dino.num_register_tokens + 1 :],
+            "x_prenorm": x,
+            "masks": masks,
+        }
