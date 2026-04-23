@@ -44,7 +44,7 @@ def preprocess_image(img: Image.Image, mode: str="crop", target_size: int=518) -
     # Center crop height if it's larger than 518 (only in crop mode)
     if mode == "crop" and new_height > target_size:
         start_y = (new_height - target_size) // 2
-        img = img[:, start_y : start_y + target_size, :]
+        img = img.crop((0, start_y, img.width, start_y + target_size))
 
     # For pad mode, pad to make a square of target_size x target_size
     if mode == "pad":
