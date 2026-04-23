@@ -68,7 +68,8 @@ def model_eval(
     model: torch.nn.Module,
     input_transform: Callable, 
     val_datasets: list = VAL_DATASETS,
-    verbose: bool = False
+    verbose: bool = False,
+    batch_size: int = 32
 ):
     model = model.eval()
     model = model.to('cuda')
@@ -78,7 +79,13 @@ def model_eval(
 
     for val_name in val_datasets:
         val_dataset, num_references, num_queries, ground_truth = get_val_dataset(val_name, input_transform)
-        val_loader = DataLoader(val_dataset, num_workers=8, batch_size=32, shuffle=False, pin_memory=True)
+        val_loader = DataLoader(
+            val_dataset,
+            num_workers=8,
+            batch_size=batch_size,
+            shuffle=False,
+            pin_memory=True
+        )
 
         if verbose:
             print(f'Evaluating on {val_name}')

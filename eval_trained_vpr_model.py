@@ -32,6 +32,7 @@ def parse_args() -> dict:
     parser = argparse.ArgumentParser()
     parser.add_argument('log_path', type=str)
     parser.add_argument('--img-size', type=int, nargs='+')
+    parser.add_argument('--batch-size', type=int, default=32)
 
     #parser.add_argument('--yaml', type=str, default='') #FUTURE
     args = parser.parse_args()
@@ -56,7 +57,12 @@ def main() -> None:
         img_size
     )
 
-    model_eval(model, input_transform, verbose=True)
+    model_eval(
+        model,
+        input_transform,
+        verbose=True,
+        batch_size=args.batch_size
+    )
 
 
 if __name__ == '__main__':
