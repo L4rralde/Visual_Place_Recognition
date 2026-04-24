@@ -17,4 +17,4 @@ agg_config:
   cluster_dim: 128
   token_dim: 256
 
-max_epochs: 2
+max_epochs: 1
