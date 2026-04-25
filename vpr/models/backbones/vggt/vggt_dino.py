@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from .transforms import preprocess_image
+from .dino_blocks import vit_large_blocks
 import os, sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from vggt.models.vggt import VGGT
@@ -39,6 +40,7 @@ class VggtBase(nn.Module):
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         self.norm_layer = kwargs.get('norm_layer', True)
         self.probing_from_layer: int = kwargs.get('probing_from_layer', -1)
+        self.adapter_depth: int = kwargs.get('adapter_depth', 0)
         self.num_channels = vggt.aggregator.patch_embed.embed_dim
         self._resnet_std = vggt.aggregator._resnet_std
         self._resnet_mean = vggt.aggregator._resnet_mean
@@ -58,6 +60,23 @@ class VggtBase(nn.Module):
         if self._vggt is not None:
             return self._vggt.aggregator.patch_embed
         raise RuntimeError("self.dino is not set in this class")
+
+    def make_adapter(self, adapter_depth: int=0) -> nn.Module:
+        assert adapter_depth >= 0
+
+        if adapter_depth == 0:
+            return nn.Identity()
+        
+        n_used_blocks = self.probing_from_layer + 1
+        assert self.dino.n_blocks >= n_used_blocks + adapter_depth, \
+            f"Model depth ({self.dino.n_blocks}) is too shallow for probing layer {self.probing_from_layer} and adapter depth {adapter_depth}."
+        
+        dino_blocks_idcs_for_adapter = [
+            self.probing_from_layer + i + 1
+            for i in range(adapter_depth)
+        ]
+        adapter = vit_large_blocks(self.dino, dino_blocks_idcs_for_adapter)
+        return adapter
 
     def inference(self, img_path_list: List[str]) -> dict:
         assert torch.cuda.is_available(), "Sadly, only works with cuda"
@@ -323,6 +342,8 @@ class VggtDino(VggtBase):
             if i == self.probing_from_layer:
                 break
         
+        x = self.adapter(x)
+
         if self.norm_layer:
             x_norm = self.dino.norm(x)
         else:
