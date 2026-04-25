@@ -248,7 +248,11 @@ class VggtDino(VggtBase):
         super().__init__(vggt, **kwargs)
         self.norm_layer = norm_layer
         self._dino = vggt.aggregator.patch_embed
-        assert self.probing_from_layer < len(self.dino.blocks)
+        self.adapter = self.make_adapter(self.adapter_depth)
+        if self.probing_from_layer < 0:
+            self.probing_from_layer = self.dino.n_blocks + self.probing_from_layer
+        assert 0 <= self.probing_from_layer < self.dino.n_blocks, \
+            "Index probing_from_layer out of range"
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtDino":
