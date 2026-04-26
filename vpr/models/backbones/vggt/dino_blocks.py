@@ -101,7 +101,7 @@ def vit_large_blocks(dino_vit, block_idcs, **kwargs):
         mlp_ratio=4,
         init_values=init_values,
         block_fn=partial(Block, attn_class=MemEffAttention),
-        norm_layer_ws=dino_vit.norm.state_dict(),
+        #norm_layer_ws=dino_vit.norm.state_dict(),
         **kwargs,
     )
     return model
