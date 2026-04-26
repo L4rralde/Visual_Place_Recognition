@@ -308,8 +308,7 @@ class VggtDino(VggtBase):
         B, S, C_in, H, W = images.shape
         assert C_in == 3, "Wrong torch image format"
 
-        with torch.no_grad():
-            patch_tokens = self.dino_forward(images)
+        patch_tokens = self.dino_forward(images)
         
         #x_norm_patchtokens shape = B*S, Total patches, channles
         #x_norm_clstoken shape: B*S, channles
@@ -336,18 +335,20 @@ class VggtDino(VggtBase):
         return patch_tokens
 
     def dino_forward_features(self, x, masks=None):
-        x = self.dino.prepare_tokens_with_masks(x, masks)
-        for i, blk in enumerate(self.dino.blocks):
-            x = blk(x)
-            if i == self.probing_from_layer:
-                break
+        with torch.no_grad():
+            x = self.dino.prepare_tokens_with_masks(x, masks)
+            for i, blk in enumerate(self.dino.blocks):
+                x = blk(x)
+                if i == self.probing_from_layer:
+                    break
         
         x = self.adapter(x)
 
-        if self.norm_layer:
-            x_norm = self.dino.norm(x)
-        else:
-            x_norm = x
+        with torch.no_grad():
+            if self.norm_layer:
+                x_norm = self.dino.norm(x)
+            else:
+                x_norm = x
         
         return {
             "x_norm_clstoken": x_norm[:, 0],
