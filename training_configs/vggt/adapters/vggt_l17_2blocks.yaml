@@ -10,7 +10,7 @@ backbone_config:
   frozen: true
   norm_layer: false
   probing_from_layer: 17
-  adapter_depth: 1
+  adapter_depth: 2
 
 
 agg_config:
@@ -19,4 +19,4 @@ agg_config:
   cluster_dim: 128
   token_dim: 256
 
-max_epochs: 1
+max_epochs: 4
