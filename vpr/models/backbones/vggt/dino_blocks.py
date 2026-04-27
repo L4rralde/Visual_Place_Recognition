@@ -31,7 +31,6 @@ class DinoBlocksAdapter(nn.Module):
         block_fn=Block,
         ffn_layer="mlp",
         qk_norm: bool=False,
-        norm_layer_ws: dict={}
     ):
         super().__init__()
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
@@ -74,15 +73,11 @@ class DinoBlocksAdapter(nn.Module):
         for new_blk, blk in zip(new_block_list, block_list):
             new_blk.load_state_dict(blk.state_dict())
         self.blocks = nn.ModuleList(new_block_list)
-        #self.norm = norm_layer(embed_dim)
-        #if norm_layer_ws:
-        #    self.norm.load_state_dict(norm_layer_ws)
 
     def forward(self, x: torch.Tensor):
         for blk in self.blocks:
             x = blk(x)
         
-        #x = self.norm(x)
         return x
     
 
@@ -101,7 +96,6 @@ def vit_large_blocks(dino_vit, block_idcs, **kwargs):
         mlp_ratio=4,
         init_values=init_values,
         block_fn=partial(Block, attn_class=MemEffAttention),
-        #norm_layer_ws=dino_vit.norm.state_dict(),
         **kwargs,
     )
     return model
