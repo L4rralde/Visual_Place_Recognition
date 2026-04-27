@@ -74,15 +74,15 @@ class DinoBlocksAdapter(nn.Module):
         for new_blk, blk in zip(new_block_list, block_list):
             new_blk.load_state_dict(blk.state_dict())
         self.blocks = nn.ModuleList(new_block_list)
-        self.norm = norm_layer(embed_dim)
-        if norm_layer_ws:
-            self.norm.load_state_dict(norm_layer_ws)
+        #self.norm = norm_layer(embed_dim)
+        #if norm_layer_ws:
+        #    self.norm.load_state_dict(norm_layer_ws)
 
     def forward(self, x: torch.Tensor):
         for blk in self.blocks:
             x = blk(x)
         
-        x = self.norm(x)
+        #x = self.norm(x)
         return x
     
 
