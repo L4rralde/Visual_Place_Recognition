@@ -46,7 +46,7 @@ class VggtBase(nn.Module):
         self._resnet_mean = vggt.aggregator._resnet_mean
         self._vggt: VGGT|None = None
         self._dino = None
-    
+
     @property
     def vggt(self) -> VGGT:
         if self._vggt is None:
@@ -118,9 +118,36 @@ class VggtBase(nn.Module):
 
         # Reshape to [B*S, C, H, W] for patch embedding
         images = images.view(B * S, C_in, H, W)
-        patch_tokens = self.dino(images) #This is all we need.
+        patch_tokens = self.dino_forward_features(images) #This is all we need.
 
         return patch_tokens
+
+    def dino_forward_features(self, x, masks=None):
+        with torch.no_grad():
+            x = self.dino.prepare_tokens_with_masks(x, masks)
+            for i, blk in enumerate(self.dino.blocks):
+                x = blk(x)
+                if i == self.probing_from_layer:
+                    x_for_salad = x
+
+        x_for_salad = self.adapter(x_for_salad)
+
+        with torch.no_grad():
+            if self.norm_layer:
+                x_for_salad = self.dino.norm(x_for_salad)
+            x_norm = self.dino.norm(x)
+            
+        
+        return {
+            "x_norm_clstoken": x_norm[:, 0],
+            "x_norm_regtokens": x_norm[:, 1 : self.dino.num_register_tokens + 1],
+            "x_norm_patchtokens": x_norm[:, self.dino.num_register_tokens + 1 :],
+            "x_salad_clstoken": x_for_salad[:, 0],
+            "x_salad_patchtokens": x_for_salad[:, self.dino.num_register_tokens + 1 :],
+            "x_prenorm": x,
+            "masks": masks,
+        }
+
 
     def alternate_attention(self, images: torch.Tensor, patch_tokens: torch.Tensor) -> tuple:
         B, S, C_in, H, W = images.shape
@@ -237,8 +264,8 @@ class VggtBase(nn.Module):
     def prepare_tokens_for_salad(self, patch_tokens: Dict[str, torch.Tensor], images_shape: Tuple[int]) -> Tuple[torch.Tensor]:
         B, S, C_in, H, W = images_shape
 
-        f = patch_tokens['x_norm_patchtokens']
-        t = patch_tokens['x_norm_clstoken']
+        f = patch_tokens['x_salad_patchtokens']
+        t = patch_tokens['x_salad_clstoken']
         
         f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
 
@@ -255,6 +282,11 @@ class VggtBackbone(VggtBase):
     def __init__(self, vggt, **kwargs):
         super().__init__(vggt, **kwargs)
         self._vggt = vggt
+        self.adapter = self.make_adapter(self.adapter_depth)
+        if self.probing_from_layer < 0:
+            self.probing_from_layer = self.dino.n_blocks + self.probing_from_layer
+        assert 0 <= self.probing_from_layer < self.dino.n_blocks, \
+            "Index probing_from_layer out of range"
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtBackbone":
@@ -264,8 +296,7 @@ class VggtBackbone(VggtBase):
 
 class VggtDino(VggtBase):
     def __init__(self, vggt: VGGT, norm_layer: bool=True, **kwargs):
-        super().__init__(vggt, **kwargs)
-        self.norm_layer = norm_layer
+        super().__init__(vggt, norm_layer=norm_layer, **kwargs)
         self._dino = vggt.aggregator.patch_embed
         self.adapter = self.make_adapter(self.adapter_depth)
         if self.probing_from_layer < 0:
@@ -315,45 +346,3 @@ class VggtDino(VggtBase):
         f, t = self.prepare_tokens_for_salad(patch_tokens, (B, S, C_in, H, W))
 
         return f, t
-
-    def dino_forward(self, images: torch.Tensor) -> torch.Tensor:
-        if len(images.shape) == 4:
-            images = images.unsqueeze(0)
-
-        B, S, C_in, H, W = images.shape
-
-        if C_in != 3:
-            raise ValueError(f"Expected 3 input channels, got {C_in}")
-
-        # Normalize images and reshape for patch embed
-        images = (images - self._resnet_mean.to('cuda')) / self._resnet_std.to('cuda')
-
-        # Reshape to [B*S, C, H, W] for patch embedding
-        images = images.view(B * S, C_in, H, W)
-        patch_tokens = self.dino_forward_features(images) #This is all we need.
-
-        return patch_tokens
-
-    def dino_forward_features(self, x, masks=None):
-        with torch.no_grad():
-            x = self.dino.prepare_tokens_with_masks(x, masks)
-            for i, blk in enumerate(self.dino.blocks):
-                x = blk(x)
-                if i == self.probing_from_layer:
-                    break
-        
-        x = self.adapter(x)
-
-        with torch.no_grad():
-            if self.norm_layer:
-                x_norm = self.dino.norm(x)
-            else:
-                x_norm = x
-        
-        return {
-            "x_norm_clstoken": x_norm[:, 0],
-            "x_norm_regtokens": x_norm[:, 1 : self.dino.num_register_tokens + 1],
-            "x_norm_patchtokens": x_norm[:, self.dino.num_register_tokens + 1 :],
-            "x_prenorm": x,
-            "masks": masks,
-        }

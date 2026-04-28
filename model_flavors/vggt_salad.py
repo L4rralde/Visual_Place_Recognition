@@ -36,12 +36,16 @@ class VggtSalad(nn.Module):
             vggt = load_pretrained_vggt()
         model = VggtSalad(vggt, log.backbone_config, log.agg_config)
         full_state = log.state_dict
-        prefix = "aggregator"
-        salad_state = {k: v for k, v in full_state.items() if k.startswith(prefix)}
+        salad_state = {k: v for k, v in full_state.items() if k.startswith("aggregator")}
+        adapter_state = {
+            k: v for k,v in full_state.items()
+            if k.startswith('backbone.adapter')
+        }
+        learned_state = {**salad_state, **adapter_state}
         del full_state
         gc.collect()
 
-        model.load_state_dict(salad_state, strict=False)
+        model.load_state_dict(learned_state, strict=False)
 
         return model
     
