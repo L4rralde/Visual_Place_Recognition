@@ -121,6 +121,24 @@ python train_from_yaml.py --config "$file"
 - [ ] Clean up. Remove args that are not required, e.g., return_token. This must be always true.
 
 
+Reranking:
+- [ ] Implementation of reranking with SuperPoint + LightGlue is almost done.
+- [ ] Need to test with a really small validation dataset.
+- [ ] Copy and modify eval code to allow reordering FAISS indices
+
+Once SP + LG works, let us work on the experiment.
+
+- [ ] Modify alternate attention blocsk input. Convert input sequence of patch tokens into batches of (query, ref).
+- [ ] Modify alternate attention blocks to use MIT SPARK's validation function.
+
+ETA: 2 days.
+
+Second term presentation
+ETA: Is up to you. How many demos do you want?
+Deadline: May 4th
+
+We Th Fr Sa Su Mo
+R  P  P
 ## Contribute
 
 If want to contribute, please send me an email. The current status will be part of my thesis, but further work would be omitted. You can help me to make this models reach (or set) the state of the art. Today, the bottleneck is RAM.
