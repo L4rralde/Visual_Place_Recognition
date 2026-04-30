@@ -103,6 +103,51 @@ class VggtBase(nn.Module):
 
         return patch_tokens
 
+    def pair_patch_tokens_with_ref(self, images: torch. Tensor, patch_tokens: torch.Tensor) -> tuple:
+        B, S, C_in, H, W = images.shape
+        BS, P, C = patch_tokens.shape
+
+        assert BS == B*S
+        assert S > 1
+        if S == 2:
+            return images, patch_tokens
+        #B, S, C_in, H, W -> B, S, 1, C_in, H, W, -> B, S-1, 2, C_in, H, W -> B*(S-1), 2, C_in, H, W
+        #BS, P, C -> B, S, P, C -> B, S, P, C -> B, S, 1, P, C -> B, S-1, 2, P, C -> B*(S-1), 2, P, C
+
+        first_image = images[:, 0:1, ...] #B, 1, C_in, H, W
+        rest_images = images[:, 1:, ...] #B, S-1, C_in, H, W
+        first_expanded = first_image.expand(-1, S-1, -1, -1, -1)
+        image_pairs = torch.stack([first_expanded, rest_images], dim=2) #B, S-1, 2, C_in, H, W
+        image_pairs = image_pairs.reshape(B*(S-1), 2, C_in, H, W) #B*(S-1), 2, C_in, H, W
+
+        patch_tokens_batched = patch_tokens.view(B, S, P, C)
+        first_image_tokens = patch_tokens_batched[:, 0:1, ...] #B, 1, P, C
+        rest_tokens = patch_tokens_batched[:, 1:, ...] #B, S-1, P, C
+        first_image_tokens_expanded = first_image_tokens.expand(-1, S-1, -1, -1) #B, S-1, P, C
+        paired_tokens = torch.stack(
+            [first_image_tokens_expanded, rest_tokens],
+            dim=2
+        ) #B, S-1, 2, P, C
+        paired_tokens = paired_tokens.reshape(B*(S-1), 2, P, C) #B*(S-1), 2, P, C
+        paired_tokens = paired_tokens.view(-1, P, C) #B*(S-1)*2, P, C
+        return image_pairs, paired_tokens
+
+    def pairwise_prediction(self, images: torch.Tensor) -> dict:
+        if len(images.shape) == 4:
+            images = images.unsqueeze(0)
+        patch_tokens = self.dino_forward(images)
+        if isinstance(patch_tokens, dict):
+            patch_tokens = patch_tokens["x_norm_patchtokens"]
+
+        img_pairs, paired_tokens = self.pair_patch_tokens_with_ref(images, patch_tokens)
+
+        print(img_pairs.shape, paired_tokens.shape)
+        aggregated_tokens_list, patch_start_idx = self.alternate_attention(img_pairs, paired_tokens)
+        predictions = self.heads_forward(
+            img_pairs, aggregated_tokens_list, patch_start_idx, query_points=None
+        )
+        return predictions
+
     def alternate_attention(self, images: torch.Tensor, patch_tokens: torch.Tensor) -> tuple:
         B, S, C_in, H, W = images.shape
         if C_in != 3:
@@ -169,25 +214,25 @@ class VggtBase(nn.Module):
 
         predictions = {}
 
-        with torch.cuda.amp.autocast(enabled=False):
-            if self._vggt.camera_head is not None:
-                pose_enc_list = self._vggt.camera_head(aggregated_tokens_list)
-                predictions["pose_enc"] = pose_enc_list[-1]  # pose encoding of the last iteration
-                predictions["pose_enc_list"] = pose_enc_list
-                
-            if self._vggt.depth_head is not None:
-                depth, depth_conf = self._vggt.depth_head(
-                    aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
-                )
-                predictions["depth"] = depth
-                predictions["depth_conf"] = depth_conf
+        #with torch.cuda.amp.autocast(enabled=False):
+        if self._vggt.camera_head is not None:
+            pose_enc_list = self._vggt.camera_head(aggregated_tokens_list)
+            predictions["pose_enc"] = pose_enc_list[-1]  # pose encoding of the last iteration
+            predictions["pose_enc_list"] = pose_enc_list
+            
+        if self._vggt.depth_head is not None:
+            depth, depth_conf = self._vggt.depth_head(
+                aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
+            )
+            predictions["depth"] = depth
+            predictions["depth_conf"] = depth_conf
 
-            if self._vggt.point_head is not None:
-                pts3d, pts3d_conf = self._vggt.point_head(
-                    aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
-                )
-                predictions["world_points"] = pts3d
-                predictions["world_points_conf"] = pts3d_conf
+        if self._vggt.point_head is not None:
+            pts3d, pts3d_conf = self._vggt.point_head(
+                aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
+            )
+            predictions["world_points"] = pts3d
+            predictions["world_points_conf"] = pts3d_conf
 
         if self._vggt.track_head is not None and query_points is not None:
             track_list, vis, conf = self._vggt.track_head(
