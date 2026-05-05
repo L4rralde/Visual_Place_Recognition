@@ -25,7 +25,7 @@ def compute_homography_inlier_count(
     return inlier_count
 
 
-class LightGlue:
+class Matcher:
     def __init__(self, ransac_thresh: float = 4.0):
         self.device = (
             'cuda' if torch.cuda.is_available()

@@ -34,15 +34,15 @@ def pil_to_torch_gray(
     return img_t
 
 
-class SuperPoint:
+class Extractor:
     def __init__(self, max_num_keypoints: int=2048):
         self.superpoint = None
         self.max_num_keypoints = max_num_keypoints
-        self.wakeup()
         self.device = (
             'cuda' if torch.cuda.is_available()
             else 'cpu'
         )
+        self.wakeup()
 
     def wakeup(self) -> None:
         self.superpoint = SuperPoint(max_num_keypoints=self.max_num_keypoints)
