@@ -1,5 +1,6 @@
 from typing import List, Dict, Tuple
 import gc
+from warnings import deprecated
 
 from PIL import Image
 import torch
@@ -25,6 +26,93 @@ def load_pretrained_vggt() -> VGGT:
     state_dict = load_vggt_state_dict()
     vggt.load_state_dict(state_dict)
     return vggt
+
+
+# The following code was adaptef from VGGT-SPARK's fork of VGGT
+# I don't intend to use this code in the main repo, but I anyway added it
+# to remember I did implemented it.
+@deprecated(
+    "This function was defined to experiment with " \
+    "VGGT alternate attention blocks for image matching "\
+    "Following VGGT-SLAM 2.0 alpha score. "\
+    "Since results were not good enough, I discarded "
+    "the changes made in VGGT code in this repo and added "\
+    "them to a new fork: https://github.com/L4rralde/vggt_score_match"\
+    "Namely, you must access to (attention) tensors q,k to compute" \
+    "the score and that does required to dig deep into VGGT" \
+)
+def mean_top_quarter(arr):
+    import numpy as np
+    # flatten to 1D
+    flat = arr.ravel()
+    # find 75th percentile threshold
+    thresh = np.percentile(flat, 75)
+    # select values >= threshold
+    top_vals = flat[flat >= thresh]
+    # return their mean
+    return top_vals.mean()
+
+@deprecated(
+    "This function was defined to experiment with " \
+    "VGGT alternate attention blocks for image matching "\
+    "Following VGGT-SLAM 2.0 alpha score. "\
+    "Since results were not good enough, I discarded "
+    "the changes made in VGGT code in this repo and added "\
+    "them to a new fork: https://github.com/L4rralde/vggt_score_match"\
+    "Namely, you must access to (attention) tensors q,k to compute" \
+    "the score and that does required to dig deep into VGGT" \
+)
+def xattn_similarity(k, q, token_offset=5):
+    assert k.shape == q.shape
+    B, H, T, d = k.shape # B, batch size. H: heads, T: all (images) concatenated tokens
+    
+    num_imgs = 2
+    tokens_per_img = T//num_imgs
+
+    q = q.clone()
+    q[:, :, :token_offset] = 0 #Zeroing cam and reg tokens
+    q[:, :, tokens_per_img: tokens_per_img+token_offset] = 0 #Zeroing cam and reg tokens
+
+    #Extract keys for the first image excluding cam and reg tokens
+    k = k[:,:,token_offset:tokens_per_img , :] #K(1) (1) Denotes from image 1. With out reg and cls tokens
+
+    attn = q @ k.transpose(-2, -1) # [Q(1) \\ Q(2)] @ K(1)^T = [Q(1)K(1)^T \\ Q(2)K(1)^T ]
+    #print(attn.shape) # B, H, T, N
+    attn = attn.transpose(-2, -1) # [K(1)Q(1)^T  K(1)Q(2)^T]
+    # print(attn.shape) # B, H, N, T
+    attn = attn.softmax(dim=-1) #softmax across all q
+ 
+    #print(attn.shape) #B, H, N, T
+    attn = attn.mean(dim=1) #Average across all heads. New shape is B, N, T
+    #print(attn.shape) #B, N, T
+
+    all_token_to_first_frame = attn[..., :tokens_per_img]  # K(1)Q(1)^T. New sahpe is B, N, T/2
+    all_token_to_second_frame = attn[..., tokens_per_img:] # # K(1)Q(2)^T. New shape is B, N, T/2
+    #print(all_token_to_first_frame.shape) #B, N, T/2
+    #print(all_token_to_second_frame.shape) #B, N, T/2
+
+    max_per_token_first_img, _ = all_token_to_first_frame.max(dim=-1)
+    #print(max_per_token_first_img.shape) # B, N
+    # max_per_token_second_img = all_token_to_second_frame.max(dim=-1)[0]  #What's 0 for? No, max returns a tuple: (values, idcs)
+
+    attn_second_frame_normalized = all_token_to_second_frame / (max_per_token_first_img.unsqueeze(-1) + 1e-6) #B, N, T/2
+    ratio, _ = attn_second_frame_normalized.max(dim=1) #B, T/2. For which token of Query
+
+    #print(ratio.shape)
+
+    # ratio = max_per_token_second_img / (max_per_token_first_img + 1e-8)
+
+    ratio =  ratio.float().detach().cpu().numpy() #B, T/2
+    ratio_list = [mean_top_quarter(r) for r in ratio] # Each r is of shape T/2
+
+    #print("Average of top quarter attention values (all frames):", ratio_list)
+    # print("First Frame, Second Frame:", avg_top_quarter_first_img, avg_top_quarter_second_img)
+    # plt.figure(figsize=(6,6))
+    # plt.imshow(max_attn[1].reshape(image_height, image_width))
+    # plt.colorbar()
+    # plt.show()
+
+    return ratio_list
 
 
 class VggtBase(nn.Module):
@@ -141,7 +229,6 @@ class VggtBase(nn.Module):
 
         img_pairs, paired_tokens = self.pair_patch_tokens_with_ref(images, patch_tokens)
 
-        print(img_pairs.shape, paired_tokens.shape)
         aggregated_tokens_list, patch_start_idx = self.alternate_attention(img_pairs, paired_tokens)
         predictions = self.heads_forward(
             img_pairs, aggregated_tokens_list, patch_start_idx, query_points=None
