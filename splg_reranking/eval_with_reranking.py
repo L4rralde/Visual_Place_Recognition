@@ -1,5 +1,3 @@
-import argparse
-
 import torch
 from torch.utils.data import DataLoader
 import faiss
@@ -7,8 +5,10 @@ import faiss.contrib.torch_utils
 import numpy as np
 from tqdm import tqdm
 
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from reranking import Reranker
 from eval import get_val_dataset, get_descriptors
-from vpr.reranking import Reranker
 from vpr.models.helper import get_transforms
 
 
