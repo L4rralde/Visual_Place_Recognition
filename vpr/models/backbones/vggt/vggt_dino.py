@@ -405,16 +405,19 @@ class VggtBase(nn.Module):
     def preprocess_image(self, img_list: Image.Image) -> Image.Image:
         return preprocess_image(img_list)
 
+    def _clip_probing_from_layer(self) -> int:
+        if self.probing_from_layer < 0:
+            self.probing_from_layer = self.dino.n_blocks + self.probing_from_layer
+        assert 0 <= self.probing_from_layer < self.dino.n_blocks, \
+            "Index probing_from_layer out of range"
+
 
 class VggtBackbone(VggtBase):
     def __init__(self, vggt, **kwargs):
         super().__init__(vggt, **kwargs)
         self._vggt = vggt
         self.adapter = self.make_adapter(self.adapter_depth)
-        if self.probing_from_layer < 0:
-            self.probing_from_layer = self.dino.n_blocks + self.probing_from_layer
-        assert 0 <= self.probing_from_layer < self.dino.n_blocks, \
-            "Index probing_from_layer out of range"
+        self._clip_probing_from_layer()
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtBackbone":
@@ -427,10 +430,7 @@ class VggtDino(VggtBase):
         super().__init__(vggt, norm_layer=norm_layer, **kwargs)
         self._dino = vggt.aggregator.patch_embed
         self.adapter = self.make_adapter(self.adapter_depth)
-        if self.probing_from_layer < 0:
-            self.probing_from_layer = self.dino.n_blocks + self.probing_from_layer
-        assert 0 <= self.probing_from_layer < self.dino.n_blocks, \
-            "Index probing_from_layer out of range"
+        self._clip_probing_from_layer()
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtDino":
