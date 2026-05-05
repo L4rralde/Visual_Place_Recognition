@@ -1,6 +1,5 @@
 from typing import List, Dict, Tuple
 import gc
-from warnings import deprecated
 
 from PIL import Image
 import torch
@@ -31,16 +30,15 @@ def load_pretrained_vggt() -> VGGT:
 # The following code was adaptef from VGGT-SPARK's fork of VGGT
 # I don't intend to use this code in the main repo, but I anyway added it
 # to remember I did implemented it.
-@deprecated(
-    "This function was defined to experiment with " \
-    "VGGT alternate attention blocks for image matching "\
-    "Following VGGT-SLAM 2.0 alpha score. "\
-    "Since results were not good enough, I discarded "
-    "the changes made in VGGT code in this repo and added "\
-    "them to a new fork: https://github.com/L4rralde/vggt_score_match"\
-    "Namely, you must access to (attention) tensors q,k to compute" \
-    "the score and that does required to dig deep into VGGT" \
-)
+# Deprecated:
+#    "This function was defined to experiment with " \
+#    "VGGT alternate attention blocks for image matching "\
+#    "Following VGGT-SLAM 2.0 alpha score. "\
+#    "Since results were not good enough, I discarded "
+#    "the changes made in VGGT code in this repo and added "\
+#    "them to a new fork: https://github.com/L4rralde/vggt_score_match"\
+#    "Namely, you must access to (attention) tensors q,k to compute" \
+#    "the score and that does required to dig deep into VGGT" \
 def mean_top_quarter(arr):
     import numpy as np
     # flatten to 1D
@@ -52,16 +50,15 @@ def mean_top_quarter(arr):
     # return their mean
     return top_vals.mean()
 
-@deprecated(
-    "This function was defined to experiment with " \
-    "VGGT alternate attention blocks for image matching "\
-    "Following VGGT-SLAM 2.0 alpha score. "\
-    "Since results were not good enough, I discarded "
-    "the changes made in VGGT code in this repo and added "\
-    "them to a new fork: https://github.com/L4rralde/vggt_score_match"\
-    "Namely, you must access to (attention) tensors q,k to compute" \
-    "the score and that does required to dig deep into VGGT" \
-)
+# Deprecated:
+#    "This function was defined to experiment with " \
+#    "VGGT alternate attention blocks for image matching "\
+#    "Following VGGT-SLAM 2.0 alpha score. "\
+#    "Since results were not good enough, I discarded "
+#    "the changes made in VGGT code in this repo and added "\
+#    "them to a new fork: https://github.com/L4rralde/vggt_score_match"\
+#    "Namely, you must access to (attention) tensors q,k to compute" \
+#    "the score and that does required to dig deep into VGGT" \
 def xattn_similarity(k, q, token_offset=5):
     assert k.shape == q.shape
     B, H, T, d = k.shape # B, batch size. H: heads, T: all (images) concatenated tokens
