@@ -128,7 +128,7 @@ class VggtBase(nn.Module):
             for i, blk in enumerate(self.dino.blocks):
                 x = blk(x)
                 if i == self.probing_from_layer:
-                    x_for_salad = x
+                    x_for_salad = x.clone()
 
         x_for_salad = self.adapter(x_for_salad)
 
