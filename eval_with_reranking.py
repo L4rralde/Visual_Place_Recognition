@@ -5,28 +5,14 @@ from torch.utils.data import DataLoader
 import faiss
 import faiss.contrib.torch_utils
 import numpy as np
+from tqdm import tqdm
 
-
-from vpr_model import VPRModel
-from eval_trained_vpr_model import Transforms
 from eval import get_val_dataset, get_descriptors
-
-
-def parse_args() -> dict:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('log_path', type=str)
-    parser.add_argument('--img-size', type=int, nargs='+')
-
-    #parser.add_argument('--yaml', type=str, default='') #FUTURE
-    args = parser.parse_args()
-    assert len(args.img_size) < 3, "Expected one or two numbers for image size"
-
-    return args
+from vpr.reranking import Reranker
+from vpr.models.helper import get_transforms
 
 
 def main():
-    args = parse_args()
-
     # Load model
     model = torch.hub.load("gmberton/MegaLoc", "get_trained_model")
     #model = VPRModel.from_lightning_log(args.log_path)
@@ -36,32 +22,26 @@ def main():
     )
     model = model.eval().to(device)
 
-    #Instantiate transform function
-    img_size = args.img_size
-    for size in img_size:
-        assert size % model.backbone.PATCH_SIZE == 0, "Img size not divisible by patch size"
-    if len(img_size) == 1:
-        img_size = img_size[0]
-    input_transform = Transforms.get_transform(
-        model.encoder_arch,
-        img_size
-    )
+    config = {
+        'img_size': [322, 322]
+    }
+    _, input_transform = get_transforms('dino', config)
 
     #Load dataset
-    val_name = 'pitts30k_test'
+    val_name = 'SPED'
     val_dataset, num_references, num_queries, ground_truth = (
        get_val_dataset(val_name, input_transform)
     )
     val_loader = DataLoader(
             val_dataset,
             num_workers=8,
-            batch_size=1,
+            batch_size=32,
             shuffle=False,
             pin_memory=True
         )
 
-    #Get descriptors / global features
     descriptors = get_descriptors(model, val_loader, device)
+
 
     r_list = descriptors[ : num_references]
     q_list = descriptors[num_references : ]
@@ -70,15 +50,33 @@ def main():
     embed_size = r_list.shape[1]
     # build index
     faiss_index = faiss.IndexFlatL2(embed_size)
+    faiss_index.add(r_list)
     # search for queries in the index
-    _, predictions = faiss_index.search(q_list, max(10)) #TOPK
+    _, predictions = faiss_index.search(q_list, 10) #TOPK
 
-    for q_idx, pred in enumerate(predictions):
-        print(pred[:5], ground_truth[q_idx])
+    #Initialize reranker
+    reranker = Reranker(val_dataset)
+    reranker.extract_local_features()
 
-        match = np.any(np.in1d(pred[:5], ground_truth[q_idx]))
-        #
-        #Reranking:
-        # 1. Need to access to individual images.
-        # 2. pass query image and topk matches to reranker
-        # 3. Sort according new ranks
+    normal_matches = 0
+    new_matches = 0
+    for q_idx, pred in tqdm(enumerate(predictions)):
+        new_idcs = reranker.rerank(q_idx, pred[:5])
+        #print(pred[:5], ground_truth[q_idx])
+        #print(new_idcs)
+        #print('-'*100)
+
+        new_preds = pred[new_idcs['permutation']]
+        #print(pred, ground_truth[q_idx])
+
+        match = np.any(np.in1d(pred[:1], ground_truth[q_idx]))
+        if match:
+            normal_matches += 1
+        new_match = np.any(np.in1d(new_preds[:1], ground_truth[q_idx]))
+        if new_match:
+            new_matches += 1
+    
+    print(normal_matches, new_matches, q_list.shape)
+    
+if __name__ == '__main__':
+    main()
