@@ -16,14 +16,28 @@ Universal Perception Encoder"**
 
 ## Available trained models:
 
+### v0.2 Release Notes
+
+All models were retrained using half the number of tokens used at test time. 
+All models improved, but DA3-SALAD Large and MapAnything-SALAD.
+VGGT-SALAD became the best performing model
+I'd expect better metrics at test stage (comparing against previous weights).
+I'll benchmark all models when finished evaluating different configurations.
+Currently I'm working on VGGT-SALAD++, which will make the unit-tests to fail
+because of different features are being added.
+All models were trained for 4 epochs.
+
+Note. I must set all hidden dims to (max) 512. Using larger hiddnen dims increases the probability of easily overfitting.
+
+
 | Model         | Backbone            | Patch Size | Embedding Dim | Hidden Dim | Pitts30k-val R1 | Pitts30k-val R5 | Ckpt size |
 | ------------- | ------------------- | ---------- | ------------- | ---------- | --------------- | --------------- | --------- |
-|**MapAnything-SALAD**|`mapanything` (ViT-G)| 14         | 1536          | **512**    | 0.93            | 0.98            |   9.88MB  | 
-| **VGGT-SALAD**      | `vggt` (ViT-L)      | 14         | 1024          | **512**    | 0.92            | 0.98            |   6.89MB  |
-| **DA3-SALAD Giant** | `da3-giant` (ViT-G) | 14         | 1536          | **1024**   | 0.89            | 0.96            |  19.80MB  |
+| **VGGT-SALAD**      | `vggt` (ViT-L)      | 14         | 1024          | **512**    | 0.932            | 0.987            |   6.89MB  |
+|**MapAnything-SALAD**|`mapanything` (ViT-G)| 14         | 1536          | **512**    | 0.929            | 0.983            |   9.88MB  | 
+| **DA3-SALAD Giant** | `da3-giant` (ViT-G) | 14         | 1536          | **1024**   | 0.90            | 0.97            |  19.80MB  |
 | **DA3-SALAD Large** | `da3-large` (ViT-L) | 14         | 1024          | **512**    | 0.84            | 0.93            |   6.89MB  |
-| **DA3-SALAD Base**  | `da3-base` (ViT-B)  | 14         | 768           | **512**    | 0.87            | 0.95            |   5.39MB  |
-| **DA3-SALAD Small** | `da3-small` (ViT-S) | 14         | 384           | **512**    | 0.84            | 0.94            |   3.14MB  |
+| **DA3-SALAD Base**  | `da3-base` (ViT-B)  | 14         | 768           | **512**    | 0.88            | 0.96            |   5.39MB  |
+| **DA3-SALAD Small** | `da3-small` (ViT-S) | 14         | 384           | **512**    | 0.85            | 0.94            |   3.14MB  |
 
 
 ### Invoking the models:

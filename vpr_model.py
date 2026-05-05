@@ -90,6 +90,14 @@ class VPRModel(pl.LightningModule):
         # For validation in Lightning v2.0.0
         self.val_outputs = []
 
+    #def on_save_checkpoint(self, checkpoint):
+    #    full_state_dict = checkpoint["state_dict"]
+    #    filtered_state_dict = {
+    #        k: v for k, v in full_state_dict.items() 
+    #        if k.startswith("aggregator")
+    #    }
+    #    checkpoint["state_dict"] = filtered_state_dict
+
     @staticmethod
     def from_lightning_log(path: str) -> "VPRModel":
         log = utils.LightningLog(path)
