@@ -17,6 +17,11 @@ def parse_args() -> dict:
 
     return args
 
+cimat_video_frames_path = os.path.join(
+    os.path.dirname(__file__),
+    "samples",
+    "cimat_video"
+)
 
 def main():
     args = parse_args()
@@ -28,7 +33,7 @@ def main():
 
     for i in range(args.num_seeds):
         img_path_list = [
-            f"samples/cimat_video/frame_00000{i}.jpg"
+            os.path.join(cimat_video_frames_path, f"frame_00000{i}.jpg")
             for i in range(10)
         ]
         shuffle(img_path_list)
