@@ -19,7 +19,8 @@ class Reranker:
         self.val_dataset: Dataset = copy(val_dataset)
         self.val_dataset.input_transform = None
         self.dump_dir: os.PathLike = dump_dir
-        rmtree(self.dump_dir)
+        if os.path.exists(self.dump_dir):
+            rmtree(self.dump_dir)
         os.makedirs(self.dump_dir)
         self.lightglue = Matcher()
 
