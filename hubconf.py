@@ -181,7 +181,6 @@ def vggt_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     vggt_salad = VggtSalad(vggt, backbone_config, salad_config)
     url = _vggt_config.url
     salad_state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu')
-    print(salad_state_dict)
     vggt_salad.aggregator.load_state_dict(salad_state_dict)
 
     return vggt_salad
