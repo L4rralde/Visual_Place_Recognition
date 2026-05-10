@@ -53,6 +53,32 @@ model = torch.hub.load(
 
 Model names: `mapanything_salad`, `vggt_salad`, `da3_salad_giant`, `da3_salad_large`, `da3_salad_base`, `da3_salad_small`.
 
+### VGGT probing Release Notes
+
+DINO block 19 was used to produce input tokens for SALAD. Results are shown below:
+
+| Model          | Adpater depth | Pitts30k-val R1 | Pitts30k-val R5 | Ckpt size |
+| -------------- | ------------- | --------------- | --------------- | --------- |
+| VGGT_L19       | NA            | 95.27           | 99.12           | 6.89MB    |
+| VGGT_L19_A     | 2             | 95.39           | 99.04           | 104MB     |
+| VGGT_L19_ADeep | 4             | 95.91           | 99.20           | 200MB     |
+
+To use these models:
+
+```python
+import torch
+model = torch.hub.load(
+    'L4rralde/Visual_Place_Recognition',
+    <vggt_probed_model_name>,
+    <path_to_this_repo_clone>
+)
+```
+
+vggt_probed_model_name: `vggt_l19_salad`, `vggt_l19_salad_adapters`, `vggt_l19_salad_deep_adapters`.
+
+
+
+
 ## My hardware limitations
 
 My trained models haven't even reached the performance of DINOv2+SALAd. Even though I'm using the same training configuration and datasets whilst some of my backbones are even larger. The reason is I'm working with 16GB of VRAM. No attention blocks are trained (DINOv2+SALAD fine tunes 4 ViT Blocks). If possible, I'll migrate to a cloud provider (or borrow a workstation), and add ViT-blocks-like adapters and increase the resolution. The number of tokens used during training must be at least half the number of tokens using at inference.
