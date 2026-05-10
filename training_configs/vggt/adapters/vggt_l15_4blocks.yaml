@@ -9,8 +9,8 @@ input_config:
 backbone_config:
   frozen: true
   norm_layer: false
-  probing_from_layer: 17
-  adapter_depth: 2
+  probing_from_layer: 15
+  adapter_depth: 4
 
 
 agg_config:
