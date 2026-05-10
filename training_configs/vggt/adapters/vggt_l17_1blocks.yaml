@@ -1,5 +1,5 @@
 #define: &process_res 518 #This is the largest dimension.
-define: &process_res 378
+define: &process_res 266
 
 backbone_arch: "vggt"
 
@@ -9,7 +9,9 @@ input_config:
 backbone_config:
   frozen: true
   norm_layer: false
-  probing_from_layer: 19
+  probing_from_layer: 17
+  adapter_depth: 1
+
 
 agg_config:
   #num_channels from dinov2-large
@@ -17,4 +19,4 @@ agg_config:
   cluster_dim: 128
   token_dim: 256
 
-max_epochs: 4
+max_epochs: 3

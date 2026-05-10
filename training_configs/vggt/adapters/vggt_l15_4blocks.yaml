@@ -9,7 +9,9 @@ input_config:
 backbone_config:
   frozen: true
   norm_layer: false
-  probing_from_layer: 19
+  probing_from_layer: 15
+  adapter_depth: 4
+
 
 agg_config:
   #num_channels from dinov2-large

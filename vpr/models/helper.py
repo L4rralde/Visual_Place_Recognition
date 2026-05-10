@@ -79,3 +79,7 @@ def freeze_model(model) -> None:
     for param in model.parameters():
         param.requires_grad = False
     model.eval()
+    if hasattr(model, 'adapter'):
+        for param in model.adapter.parameters():
+            param.requires_grad = True
+        model.adapter.train()

@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from .transforms import preprocess_image
+from .dino_blocks import vit_large_blocks
 import os, sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from vggt.models.vggt import VGGT
@@ -124,12 +125,13 @@ class VggtBase(nn.Module):
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         self.norm_layer = kwargs.get('norm_layer', True)
         self.probing_from_layer: int = kwargs.get('probing_from_layer', -1)
+        self.adapter_depth: int = kwargs.get('adapter_depth', 0)
         self.num_channels = vggt.aggregator.patch_embed.embed_dim
         self._resnet_std = vggt.aggregator._resnet_std
         self._resnet_mean = vggt.aggregator._resnet_mean
         self._vggt: VGGT|None = None
         self._dino = None
-    
+
     @property
     def vggt(self) -> VGGT:
         if self._vggt is None:
@@ -143,6 +145,23 @@ class VggtBase(nn.Module):
         if self._vggt is not None:
             return self._vggt.aggregator.patch_embed
         raise RuntimeError("self.dino is not set in this class")
+
+    def make_adapter(self, adapter_depth: int=0) -> nn.Module:
+        assert adapter_depth >= 0
+
+        if adapter_depth == 0:
+            return nn.Identity()
+        
+        n_used_blocks = self.probing_from_layer + 1
+        assert self.dino.n_blocks >= n_used_blocks + adapter_depth, \
+            f"Model depth ({self.dino.n_blocks}) is too shallow for probing layer {self.probing_from_layer} and adapter depth {adapter_depth}."
+        
+        dino_blocks_idcs_for_adapter = [
+            self.probing_from_layer + i + 1
+            for i in range(adapter_depth)
+        ]
+        adapter = vit_large_blocks(self.dino, dino_blocks_idcs_for_adapter)
+        return adapter
 
     def inference(self, img_path_list: List[str]) -> dict:
         assert torch.cuda.is_available(), "Sadly, only works with cuda"
@@ -184,9 +203,35 @@ class VggtBase(nn.Module):
 
         # Reshape to [B*S, C, H, W] for patch embedding
         images = images.view(B * S, C_in, H, W)
-        patch_tokens = self.dino(images) #This is all we need.
+        patch_tokens = self.dino_forward_features(images) #This is all we need.
 
         return patch_tokens
+
+    def dino_forward_features(self, x, masks=None):
+        with torch.no_grad():
+            x = self.dino.prepare_tokens_with_masks(x, masks)
+            for i, blk in enumerate(self.dino.blocks):
+                x = blk(x)
+                if i == self.probing_from_layer:
+                    x_for_salad = x.clone()
+
+        x_for_salad = self.adapter(x_for_salad)
+
+        with torch.no_grad():
+            if self.norm_layer:
+                x_for_salad = self.dino.norm(x_for_salad)
+            x_norm = self.dino.norm(x)
+            
+        
+        return {
+            "x_norm_clstoken": x_norm[:, 0],
+            "x_norm_regtokens": x_norm[:, 1 : self.dino.num_register_tokens + 1],
+            "x_norm_patchtokens": x_norm[:, self.dino.num_register_tokens + 1 :],
+            "x_salad_clstoken": x_for_salad[:, 0],
+            "x_salad_patchtokens": x_for_salad[:, self.dino.num_register_tokens + 1 :],
+            "x_prenorm": x,
+            "masks": masks,
+        }
 
     def pair_patch_tokens_with_ref(self, images: torch. Tensor, patch_tokens: torch.Tensor) -> tuple:
         B, S, C_in, H, W = images.shape
@@ -347,8 +392,8 @@ class VggtBase(nn.Module):
     def prepare_tokens_for_salad(self, patch_tokens: Dict[str, torch.Tensor], images_shape: Tuple[int]) -> Tuple[torch.Tensor]:
         B, S, C_in, H, W = images_shape
 
-        f = patch_tokens['x_norm_patchtokens']
-        t = patch_tokens['x_norm_clstoken']
+        f = patch_tokens['x_salad_patchtokens']
+        t = patch_tokens['x_salad_clstoken']
         
         f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
 
@@ -360,11 +405,19 @@ class VggtBase(nn.Module):
     def preprocess_image(self, img_list: Image.Image) -> Image.Image:
         return preprocess_image(img_list)
 
+    def _clip_probing_from_layer(self) -> int:
+        if self.probing_from_layer < 0:
+            self.probing_from_layer = self.dino.n_blocks + self.probing_from_layer
+        assert 0 <= self.probing_from_layer < self.dino.n_blocks, \
+            "Index probing_from_layer out of range"
+
 
 class VggtBackbone(VggtBase):
     def __init__(self, vggt, **kwargs):
         super().__init__(vggt, **kwargs)
         self._vggt = vggt
+        self.adapter = self.make_adapter(self.adapter_depth)
+        self._clip_probing_from_layer()
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtBackbone":
@@ -374,10 +427,10 @@ class VggtBackbone(VggtBase):
 
 class VggtDino(VggtBase):
     def __init__(self, vggt: VGGT, norm_layer: bool=True, **kwargs):
-        super().__init__(vggt, **kwargs)
-        self.norm_layer = norm_layer
+        super().__init__(vggt, norm_layer=norm_layer, **kwargs)
         self._dino = vggt.aggregator.patch_embed
-        assert self.probing_from_layer < len(self.dino.blocks)
+        self.adapter = self.make_adapter(self.adapter_depth)
+        self._clip_probing_from_layer()
 
     @staticmethod
     def from_pretrained(**kwargs) -> "VggtDino":
@@ -414,49 +467,10 @@ class VggtDino(VggtBase):
         B, S, C_in, H, W = images.shape
         assert C_in == 3, "Wrong torch image format"
 
-        with torch.no_grad():
-            patch_tokens = self.dino_forward(images)
+        patch_tokens = self.dino_forward(images)
         
         #x_norm_patchtokens shape = B*S, Total patches, channles
         #x_norm_clstoken shape: B*S, channles
         f, t = self.prepare_tokens_for_salad(patch_tokens, (B, S, C_in, H, W))
 
         return f, t
-
-    def dino_forward(self, images: torch.Tensor) -> torch.Tensor:
-        if len(images.shape) == 4:
-            images = images.unsqueeze(0)
-
-        B, S, C_in, H, W = images.shape
-
-        if C_in != 3:
-            raise ValueError(f"Expected 3 input channels, got {C_in}")
-
-        # Normalize images and reshape for patch embed
-        images = (images - self._resnet_mean.to('cuda')) / self._resnet_std.to('cuda')
-
-        # Reshape to [B*S, C, H, W] for patch embedding
-        images = images.view(B * S, C_in, H, W)
-        patch_tokens = self.dino_forward_features(images) #This is all we need.
-
-        return patch_tokens
-
-    def dino_forward_features(self, x, masks=None):
-        x = self.dino.prepare_tokens_with_masks(x, masks)
-        for i, blk in enumerate(self.dino.blocks):
-            x = blk(x)
-            if i == self.probing_from_layer:
-                break
-        
-        if self.norm_layer:
-            x_norm = self.dino.norm(x)
-        else:
-            x_norm = x
-        
-        return {
-            "x_norm_clstoken": x_norm[:, 0],
-            "x_norm_regtokens": x_norm[:, 1 : self.dino.num_register_tokens + 1],
-            "x_norm_patchtokens": x_norm[:, self.dino.num_register_tokens + 1 :],
-            "x_prenorm": x,
-            "masks": masks,
-        }
