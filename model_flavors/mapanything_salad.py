@@ -47,12 +47,11 @@ class MapAnythingSalad(nn.Module):
         num_views, c, height, width = images.shape
         img_shape = (int(height), int(width))
 
-        patch_tokens = self.backbone.dino_forward(images)
+        patch_tokens, features_for_salad = self.backbone.dino_forward(images)
         global_descriptor = self.aggregator(
             self.backbone.prepare_tokens_for_salad(
-                patch_tokens,
-                height//self.backbone.PATCH_SIZE,
-                width//self.backbone.PATCH_SIZE
+                features_for_salad,
+                (1, num_views, c, height, width)
             )
         )
 

@@ -1,9 +1,10 @@
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 import gc
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-from uniception.models.encoders import ViTEncoderInput, DINOv2Encoder
+from uniception.models.encoders import ViTEncoderInput, DINOv2Encoder, ViTEncoderOutput
 from uniception.models.info_sharing.base import MultiViewTransformerInput
 from PIL import Image
 
@@ -23,6 +24,10 @@ def load_pretrained_mapanything() -> MapAnything:
     return MapAnything.from_pretrained("facebook/map-anything")
 
 
+@dataclass
+class ViTEncoderOutputForSalad(ViTEncoderOutput):
+    features_for_salad: Optional[Dict[str, torch.Tensor]] = None
+
 class MapAnythingBase(nn.Module):
     PATCH_SIZE = 14
     def __init__(self, map_anything: MapAnything, **kwargs):
@@ -30,13 +35,14 @@ class MapAnythingBase(nn.Module):
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         self.norm_layer = kwargs.get('norm_layer', True)
-        assert self.norm_layer, "Feature not implemented yet. Norm layer must be always true"
+        self.probing_from_layer: int = kwargs.get('probing_from_layer', -1)
         self.num_channels = map_anything.encoder.model.embed_dim
         self._map_anything: MapAnything|None = None
         self._dino: DINOv2Encoder|None = None
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA must be available")
         self.device = 'cuda'
+        self.adapter = nn.Identity()
     
     @property
     def map_anything(self) -> MapAnything:
@@ -52,12 +58,15 @@ class MapAnythingBase(nn.Module):
             return self._map_anything.encoder
         raise RuntimeError("self.dino is not set in this class")
 
-    def prepare_tokens_for_salad(self, patch_tokens: torch.Tensor, h: int, w: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        num_views, _, dim = patch_tokens.shape
-        assert dim == self.num_channels
-        feats = patch_tokens[:, :h*w].permute(0, 2, 1).view(num_views, dim, h, w)
-        cls = patch_tokens[:, h*w]
-        return feats, cls
+    def prepare_tokens_for_salad(self, patch_tokens: Dict[str, torch.Tensor], images_shape: Tuple[int]) -> Tuple[torch.Tensor]:
+        B, S, C_in, H, W = images_shape
+
+        f = patch_tokens['x_salad_patchtokens']
+        t = patch_tokens['x_salad_clstoken']
+        
+        f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
+
+        return f, t
 
     def unpack_dino_outputs(self, patch_tokens: torch.Tensor, h: int, w:int) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         num_views, num_tokens, dim = patch_tokens.shape
@@ -80,9 +89,6 @@ class MapAnythingBase(nn.Module):
 
         Args:
             views (List[dict]): List of dictionaries containing the input views' images and instance information.
-
-        Returns:
-            torch.Tensor: Patch tokens with CLS token and registers (they don't see ot be available) from DINO
         """
         num_views, c, h, w = all_imgs_across_views.shape
         data_norm_type = 'dinov2'
@@ -90,13 +96,101 @@ class MapAnythingBase(nn.Module):
         encoder_input = ViTEncoderInput(
             image=all_imgs_across_views, data_norm_type=data_norm_type
         )
-        encoder_output = self.dino(encoder_input)
+        encoder_output: ViTEncoderOutputForSalad = self.uniception_dino_forward(encoder_input)
 
         features = encoder_output.features
         features = features.view(num_views, self.num_channels, -1).permute(0, 2, 1)
         regs = encoder_output.registers.permute(0, 2, 1)
         patch_tokens = torch.cat((features, regs), dim=1)
-        return patch_tokens
+        return patch_tokens, encoder_output.features_for_salad
+
+    def uniception_dino_forward(self, encoder_input: ViTEncoderInput) -> ViTEncoderOutput:
+        """
+        DINOv2 Encoder Forward Pass
+
+        Args:
+            encoder_input (ViTEncoderInput): Input data for the encoder. Input data must contain image normalization type and normalized image tensor.
+
+        Returns:
+            ViTEncoderOutput: Output data from the encoder.
+        """
+        # Check image normalization type
+        self.dino._check_data_normalization_type(encoder_input.data_norm_type)
+
+        # Check the dtype and shape of the input image
+        assert isinstance(encoder_input.image, torch.Tensor), "Input must be a torch.Tensor"
+        assert encoder_input.image.ndim == 4, "Input must be of shape (B, C, H, W)"
+        batch_size, channels, height, width = encoder_input.image.shape
+        assert channels == 3, "Input must have 3 channels"
+        assert (
+            height % self.dino.patch_size == 0 and width % self.dino.patch_size == 0
+        ), f"Input shape must be divisible by patch size: {self.dino.patch_size}"
+
+        # Extract the features from the DINOv2 model
+        result_dict = self.dino_forward_features(encoder_input.image)
+
+        # Patch tokens
+        features = result_dict["x_norm_patchtokens"]
+        features_for_salad = {
+            k: result_dict[k]
+            for k in ['x_salad_clstoken', 'x_salad_patchtokens']
+        }
+
+        # Resize the features to the expected shape
+        # (B x Num_patches x Embed_dim) -> (B x Embed_dim x H / Patch_Size x W / Patch_Size)
+        features = features.permute(0, 2, 1)
+        features = features.reshape(
+            -1, self.dino.enc_embed_dim, height // self.dino.patch_size, width // self.dino.patch_size
+        ).contiguous()
+
+        # Additional registers (including cls token) if present
+        additional_registers = []
+
+        # Add the cls token
+        cls_token = result_dict["x_norm_clstoken"].unsqueeze(1)  # (B x 1 x Embed_dim)
+        additional_registers.append(cls_token)
+
+        # Add the registers
+        registers = result_dict["x_norm_regtokens"]
+        if registers is not None:
+            additional_registers.append(registers)
+
+        all_registers = torch.cat(additional_registers, dim=1) if len(additional_registers) > 0 else None
+        if all_registers is not None:
+            all_registers = all_registers.permute(0, 2, 1).contiguous()  # (B x Embed_dim x Num_registers)
+
+        return ViTEncoderOutputForSalad(
+            features=features,
+            registers=all_registers,
+            features_for_salad=features_for_salad
+        )
+
+    def dino_forward_features(self, x, masks=None):
+        with torch.no_grad():
+            x = self.dino.model.prepare_tokens_with_masks(x, masks)
+            for i, blk in enumerate(self.dino.model.blocks):
+                x = blk(x)
+                if i == self.probing_from_layer:
+                    x_for_salad = x.clone()
+
+        x_for_salad = self.adapter(x_for_salad)
+
+        with torch.no_grad():
+            if self.norm_layer:
+                x_for_salad = self.dino.model.norm(x_for_salad)
+            x_norm = self.dino.model.norm(x)
+            
+        
+        return {
+            "x_norm_clstoken": x_norm[:, 0],
+            "x_norm_regtokens": x_norm[:, 1 : self.dino.model.num_register_tokens + 1],
+            "x_norm_patchtokens": x_norm[:, self.dino.model.num_register_tokens + 1 :],
+            "x_salad_clstoken": x_for_salad[:, 0],
+            "x_salad_patchtokens": x_for_salad[:, self.dino.model.num_register_tokens + 1 :],
+            "x_prenorm": x,
+            "masks": masks,
+        }
+    
 
     def imgs_tensor_as_views(self, imgs: torch.Tensor) -> List[Dict[str, Any]]:
         num_views, c, height, width = imgs.shape
@@ -152,12 +246,21 @@ class MapAnythingBase(nn.Module):
                 edge_normal_threshold=edge_normal_threshold,
                 **kwargs
             )
+    
+    def _clip_probing_from_layer(self) -> int:
+        dino_depth = len(self.dino.model.blocks)
+        if self.probing_from_layer < 0:
+            self.probing_from_layer = dino_depth + self.probing_from_layer
+        assert 0 <= self.probing_from_layer < dino_depth, \
+            "Index probing_from_layer out of range"
+
 
 class MapAnythingBackbone(MapAnythingBase):
     def __init__(self, map_anything, **kwargs):
         super().__init__(map_anything, **kwargs)
         self._map_anything = map_anything
         self._map_anything.use_register_tokens_from_encoder = True
+        self._clip_probing_from_layer()
 
     @classmethod
     def from_pretrained(cls, **kwargs):
@@ -611,7 +714,7 @@ class MapAnythingBackbone(MapAnythingBase):
 
         # Run the image encoder on all the input views
         #DIno forward
-        patch_tokens = self.dino_forward(imgs)
+        patch_tokens, _ = self.dino_forward(imgs)
         all_encoder_features_across_views, all_encoder_registers_across_views = (
             self.unpack_dino_outputs(patch_tokens, height//self.PATCH_SIZE, width//self.PATCH_SIZE)
         )
@@ -650,6 +753,7 @@ class MapAnythingDino(MapAnythingBase):
         super().__init__(map_anything, **kwargs)
         self._dino: DINOv2Encoder = map_anything.encoder #dinov2 from uniception. Which actually instantiates dinov2 from meta
         #Actual dino: map_anything.encoder.model
+        self._clip_probing_from_layer
 
     @classmethod
     def from_pretrained(cls, **kwargs):
@@ -676,8 +780,8 @@ class MapAnythingDino(MapAnythingBase):
         n, c, h, w = images.shape
         assert c == 3, "Wrong input shape"
 
-        patch_tokens = self.dino_forward(images)
-        f, t = self.prepare_tokens_for_salad(patch_tokens, h//self.PATCH_SIZE, w//self.PATCH_SIZE)
+        _, features_for_salad = self.dino_forward(images)
+        f, t = self.prepare_tokens_for_salad(features_for_salad, (1, n, c, h, w))
         
         return f, t
 
