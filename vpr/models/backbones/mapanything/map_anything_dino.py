@@ -172,7 +172,6 @@ class MapAnythingBase(nn.Module):
                 x = blk(x)
                 if i == self.probing_from_layer:
                     x_for_salad = x.clone()
-                    break #To speed up training, let's stop earlier
 
         x_for_salad = self.adapter(x_for_salad)
 
