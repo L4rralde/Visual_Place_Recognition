@@ -121,6 +121,7 @@ class DepthAnything3Backbone(nn.Module):
 
             if i in export_feat_layers:
                 aux_output.append(x.clone())
+                break
         return x, aux_output
 
     def _alt_attend(self, x, batch_shape: Tuple[int], n=1, export_feat_layers=[], **kwargs):
