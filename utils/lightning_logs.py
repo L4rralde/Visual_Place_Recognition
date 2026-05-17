@@ -57,6 +57,23 @@ class LightningLog:
             os.path.join(self.path, 'metrics.csv')
         )
 
+    @property
+    def validation_results(self) -> pd.DataFrame:
+        df = self.metrics
+
+        r_columns = [
+            col for col in df.columns
+            if re.search(r'/R\d+$', col)
+        ]
+
+        if not r_columns:
+            return df.iloc[0:0]  # empty DataFrame with same columns
+
+        mask = df[r_columns].notna().any(axis=1)
+
+        return df[mask].dropna(axis=1, how='all').reset_index(drop=True)
+
+
     @staticmethod
     def load_ckpt(path: str) -> Dict[str, torch.Tensor]:
         return torch.load(
