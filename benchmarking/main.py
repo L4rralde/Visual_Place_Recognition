@@ -1,3 +1,4 @@
+from typing import Tuple
 import sys, os
 import argparse
 
@@ -18,6 +19,62 @@ def parse_args():
     parser.add_argument('input_dir')
     parser.add_argument('--batch-size', type=int, default=16)
     return parser.parse_args()
+
+
+def get_descriptors_benchmark(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    warmup_batches: int,
+    total_batches: int,
+) -> Tuple[torch.Tensor, np.ndarray]:
+    starters = []
+    enders = []
+
+    descriptors = []
+    dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+    with torch.inference_mode():
+        with torch.amp.autocast('cuda', dtype=dtype):
+            for i, imgs in tqdm(enumerate(dataloader), total=total_batches, desc="Calculating descriptors"):
+                imgs = imgs.to('cuda', non_blocking=True)
+                if len(imgs.shape) == 4:
+                    imgs = imgs.unsqueeze(0)
+
+                if i < warmup_batches:  
+                    patch_tokens = model.backbone.dino_forward(imgs)
+                    feats, cls_token = model.backbone.prepare_tokens_for_salad(patch_tokens, imgs.shape)
+                    output = model.aggregator((feats, cls_token))
+                    descriptors.append(output.cpu())
+                    continue
+
+                if i == warmup_batches:
+                    torch.cuda.synchronize()
+                
+                starter = torch.cuda.Event(enable_timing=True)
+                ender = torch.cuda.Event(enable_timing=True)
+                
+                patch_tokens = model.backbone.dino_forward(imgs)
+
+                starter.record()
+                feats, cls_token = model.backbone.prepare_tokens_for_salad(patch_tokens, imgs.shape)
+                output = model.aggregator((feats, cls_token))
+                ender.record()
+                descriptors.append(output.cpu())
+                
+                starters.append(starter)
+                enders.append(ender)
+
+            # Synchronize ONCE at the end so the CPU/DataLoader isn't blocked during the loop
+            torch.cuda.synchronize()
+
+    descriptors = torch.cat(descriptors)
+    
+    if not starters:
+        print("Not enough batches to calculate timing after warmup.")
+        return
+
+    times = np.array([s.elapsed_time(e) for s, e in zip(starters, enders)])/1000.0
+
+    return descriptors, times
 
 
 def main():
@@ -57,54 +114,15 @@ def main():
     print("warmup_batches", warmup_batches)
     print("total batches", total_batches)
     print("batch size", args.batch_size)
-    
-    starters = []
-    enders = []
 
-    dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
-    with torch.inference_mode():
-        with torch.amp.autocast('cuda', dtype=dtype):
-            for i, imgs in tqdm(enumerate(dataloader), total=total_batches, desc="Calculating descriptors"):
-                imgs = imgs.to('cuda', non_blocking=True)
-                if len(imgs.shape) == 4:
-                    imgs = imgs.unsqueeze(0)
+    descriptors, times = get_descriptors_benchmark(
+        model,
+        dataloader,
+        warmup_batches,
+        total_batches
+    )
 
-                if i < warmup_batches:  
-                    patch_tokens = model.backbone.dino_forward(imgs)
-                    feats, cls_token = model.backbone.prepare_tokens_for_salad(patch_tokens, imgs.shape)
-                    model.aggregator((feats, cls_token))
-                    continue
-
-                if i == warmup_batches:
-                    torch.cuda.synchronize()
-                
-                starter = torch.cuda.Event(enable_timing=True)
-                ender = torch.cuda.Event(enable_timing=True)
-                
-                patch_tokens = model.backbone.dino_forward(imgs)
-
-                starter.record()
-                feats, cls_token = model.backbone.prepare_tokens_for_salad(patch_tokens, imgs.shape)
-                model.aggregator((feats, cls_token))
-                ender.record()
-                
-                starters.append(starter)
-                enders.append(ender)
-
-            # Synchronize ONCE at the end so the CPU/DataLoader isn't blocked during the loop
-            torch.cuda.synchronize()
-    
-    if not starters:
-        print("Not enough batches to calculate timing after warmup.")
-        return
-
-    times = np.array([s.elapsed_time(e) for s, e in zip(starters, enders)])
-    
-    avg_time_ms = times.mean()
-    avg_time_sec = avg_time_ms / 1000
-    
-    print(f"Average batch model inference time: {avg_time_sec:.6f} seconds")
-    print(f"Number of batches per second: {1 / avg_time_sec:.2f}")
+    print(f"Average elapsed time: {times.mean()}")
 
 
 if __name__ == '__main__':
