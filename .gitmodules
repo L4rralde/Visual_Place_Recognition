@@ -10,3 +10,7 @@
 [submodule "submodules/map-anything"]
 	path = submodules/map-anything
 	url = https://github.com/facebookresearch/map-anything.git
+	
+[submodule "submodules/vggt-omega"]
+	path = submodules/vggt-omega
+	url = https://github.com/facebookresearch/vggt-omega.git
