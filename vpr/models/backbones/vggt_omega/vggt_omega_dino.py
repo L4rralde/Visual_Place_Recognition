@@ -15,6 +15,7 @@ from vggt_omega.utils.pose_enc import encoding_to_camera
 from vggt_omega.models.aggregator import slice_expand_and_flatten, Aggregator
 from vggt_omega.models.layers.vision_transformer import DinoVisionTransformer
 
+
 def load_pretrained_vggt_omega(checkpoint: str) -> VGGTOmega:
     model = VGGTOmega()
     model.load_state_dict(torch.load(checkpoint, map_location="cpu"))
@@ -34,8 +35,17 @@ class VggtOmegaBase(nn.Module):
         self.probing_from_layer: int = kwargs.get('probing_from_layer', -1)
         self.num_channels = vggt_omega.aggregator.patch_embed.embed_dim
         self.PATCH_SIZE = self.patch_size = vggt_omega.aggregator.patch_size
-        self._resnet_mean = vggt_omega.aggregator._resnet_mean
-        self._resnet_std = vggt_omega.aggregator._resnet_std
+        self.register_buffer(
+            "_resnet_mean",
+            vggt_omega.aggregator._resnet_mean.detach().clone(),
+            persistent=False,
+        )
+
+        self.register_buffer(
+            "_resnet_std",
+            vggt_omega.aggregator._resnet_std.detach().clone(),
+            persistent=False,
+        )
         assert isinstance(vggt_omega.aggregator.patch_embed.head, nn.Identity)
         self._vggt_omega: Optional[VGGTOmega] = None
         self._dino: Optional[DinoVisionTransformer] = None
@@ -82,8 +92,8 @@ class VggtOmegaBase(nn.Module):
 
         f = patch_tokens['x_salad_patchtokens']
         t = patch_tokens['x_salad_clstoken']
-        
-        f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
+
+        f = f.reshape((B*S, H//self.patch_size, W//self.patch_size, self.num_channels)).permute(0, 3, 1, 2)
 
         return f, t
 
@@ -147,7 +157,7 @@ class VggtOmegaBase(nn.Module):
         if num_channels != 3:
             raise ValueError(f"Expected 3 input channels, got {num_channels}")
 
-        images = (images - self._resnet_mean) / self._resnet_std
+        images = (images - self._resnet_mean.to()) / self._resnet_std
         images = images.view(batch_size * num_frames, num_channels, height, width)
 
         patch_tokens = self.dino_forward_features(images)
@@ -314,7 +324,7 @@ class VggtOmegaDino(VggtOmegaBase):
         # We must use strict=False because we are intentionally missing the rest of the model
         keys = vggt_omega.load_state_dict(dino_state, strict=False)
 
-        backbone = VggtOmegaDino(VggtOmegaDino, **kwargs)
+        backbone = VggtOmegaDino(vggt_omega, **kwargs)
 
         #Final cleanup
         del vggt_omega
