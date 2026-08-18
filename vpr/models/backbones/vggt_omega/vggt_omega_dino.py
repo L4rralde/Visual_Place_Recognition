@@ -1,4 +1,5 @@
 from typing import Optional, List, Dict, Tuple
+import gc
 import os, sys
 
 import torch
@@ -14,9 +15,9 @@ from vggt_omega.utils.pose_enc import encoding_to_camera
 from vggt_omega.models.aggregator import slice_expand_and_flatten, Aggregator
 from vggt_omega.models.layers.vision_transformer import DinoVisionTransformer
 
-def load_pretrained_vggt_omega(checkpoint_path: str) -> VGGTOmega:
+def load_pretrained_vggt_omega(checkpoint: str) -> VGGTOmega:
     model = VGGTOmega()
-    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    model.load_state_dict(torch.load(checkpoint, map_location="cpu"))
     return model
 
 
@@ -41,7 +42,7 @@ class VggtOmegaBase(nn.Module):
 
     @property
     def vggt_omega(self) -> VGGTOmega:
-        if self._vggt is None:
+        if self._vggt_omega is None:
             raise RuntimeError("self.vggt_omega is not set in this class")
         return self._vggt_omega
 
@@ -56,21 +57,45 @@ class VggtOmegaBase(nn.Module):
     def preprocess_image(self, img_list: Image.Image, **kwargs) -> Image.Image:
         return preprocess_image(img_list, **kwargs)
 
+    def pose_encoding_to_extri_intri(
+        self,
+        pose_encoding: torch.Tensor,
+        image_size_hw: Tuple[int]
+    ) -> Tuple[torch.Tensor]:
+        return encoding_to_camera(
+            pose_encoding,
+            image_size_hw
+        )
+
     def _clip_probing_from_layer(self) -> int:
         if self.probing_from_layer < 0:
             self.probing_from_layer += self.dino.n_blocks
         assert 0 <= self.probing_from_layer < self.dino.n_blocks, \
             "Index probing_from_layer out of range"
 
-    def inference(self, img_path_list: List[str]) -> Dict[str, np.ndarray]:
+    def prepare_tokens_for_salad(
+        self,
+        patch_tokens: Dict[str, torch.Tensor],
+        images_shape: Tuple[int]
+    ) -> Tuple[torch.Tensor]:
+        B, S, C_in, H, W = images_shape
+
+        f = patch_tokens['x_salad_patchtokens']
+        t = patch_tokens['x_salad_clstoken']
+        
+        f = f.reshape((B*S, H//14, W//14, self.num_channels)).permute(0, 3, 1, 2)
+
+        return f, t
+
+    def inference(self, img_path_list: List[str], **kwargs) -> Dict[str, np.ndarray]:
         assert torch.cuda.is_available(), "Sadly, only works with cuda"
         DEVICE = "cuda"
 
-        images = load_and_preprocess_images(img_path_list).to(DEVICE)
+        images = load_and_preprocess_images(img_path_list, **kwargs).to(DEVICE)
         with torch.inference_mode():
             predictions = self.forward(images)
 
-        extrinsics, intrinsics = encoding_to_camera(
+        extrinsics, intrinsics = self.pose_encoding_to_extri_intri(
             predictions["pose_enc"],
             predictions["images"].shape[-2:],
         )
@@ -88,24 +113,30 @@ class VggtOmegaBase(nn.Module):
         self,
         x: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        assert not self.untie_cls_and_patch_norms, "I assumed it was False"
-        assert not self.untie_global_and_local_cls_norm, "I assumed it was False"
+        assert not self.dino.untie_cls_and_patch_norms, "I assumed it was False"
+        assert not self.dino.untie_global_and_local_cls_norm, "I assumed it was False"
         x, rope = self.dino.prepare_tokens_with_masks(x)
-        for _, blk in enumerate(self.blocks):
+        for i, blk in enumerate(self.dino.blocks):
             if self.dino.rope_embed is not None:
                 H, W = rope
                 rope_sincos = self.dino.rope_embed(H=H, W=W)
             else:
                 rope_sincos = None
             x = blk(x, rope_sincos)
+            if i == self.probing_from_layer:
+                x_for_salad = x.clone()
         
-        x_norm = self.norm(x)
-        x_norm_cls_reg = x_norm[:, : self.n_storage_tokens + 1]
-        x_norm_patch = x_norm[:, self.n_storage_tokens + 1 :]
+        x_norm = self.dino.norm(x)
+        if self.norm_layer:
+            x_for_salad = self.dino.norm(x_for_salad)
+        x_norm_cls_reg = x_norm[:, : self.dino.n_storage_tokens + 1]
+        x_norm_patch = x_norm[:, self.dino.n_storage_tokens + 1 :]
         output = {
             "x_norm_clstoken": x_norm_cls_reg[:, 0],
             "x_storage_tokens": x_norm_cls_reg[:, 1:],
             "x_norm_patchtokens": x_norm_patch,
+            "x_salad_clstoken": x_for_salad[:, 0],
+            "x_salad_patchtokens": x_for_salad[:, self.dino.n_storage_tokens + 1 :],
             "x_prenorm": x,
             "masks": None,
         }
@@ -119,7 +150,7 @@ class VggtOmegaBase(nn.Module):
         images = (images - self._resnet_mean) / self._resnet_std
         images = images.view(batch_size * num_frames, num_channels, height, width)
 
-        patch_tokens = self.dino_forward_features(images)['x_norm_clstoken']
+        patch_tokens = self.dino_forward_features(images)
 
         return patch_tokens
 
@@ -166,7 +197,6 @@ class VggtOmegaBase(nn.Module):
 
         return outputs, self._vggt_omega.aggregator.patch_token_start
 
-        
     def heads_forward(
         self,
         images: torch.Tensor,
@@ -219,9 +249,9 @@ class VggtOmegaBase(nn.Module):
             register_token = slice_expand_and_flatten(
                 self._vggt_omega.aggregator.register_token, batch_size, num_frames
             )
-
+            
             aggregated_tokens_list, patch_token_start = self.alternate_attention(
-                image_shape = (batch_size, num_frames, num_channels, height, width),
+                img_shape = (batch_size, num_frames, num_channels, height, width),
                 tokens=torch.cat([camera_token, register_token, patch_tokens], dim=1),
                 patch_tokens=patch_tokens,
             )
@@ -245,4 +275,62 @@ class VggtOmegaBase(nn.Module):
         return {
             **predictions,
             **heads_predictions
-        } 
+        }
+
+
+class VggtOmegaBackbone(VggtOmegaBase):
+    def __init__(self, vggt_omega: VGGTOmega, **kwargs):
+        super().__init__(vggt_omega, **kwargs)
+        self._vggt_omega = vggt_omega
+        self._clip_probing_from_layer()
+
+    @staticmethod
+    def from_pretrained(checkpoint: str, **kwargs) -> "VggtOmegaBackbone":
+        vggt_omega = load_pretrained_vggt_omega(checkpoint)
+        return VggtOmegaBackbone(vggt_omega, **kwargs)
+
+
+class VggtOmegaDino(VggtOmegaBase):
+    def __init__(self, vggt_omega: VGGTOmega, norm_layer: bool=True, **kwargs):
+        super().__init__(vggt_omega, norm_layer=norm_layer, **kwargs)
+        self._dino = vggt_omega.aggregator.patch_embed
+        self._clip_probing_from_layer()
+
+    @staticmethod
+    def from_pretrained(checkpoint: str, **kwargs) -> "VggtOmegaDino":
+        vggt_omega = VGGTOmega()
+        full_state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+
+        # Filter weights: Keep ONLY the dino parts
+        # This assumes the prefix in the state_dict matches the module structure
+        prefix = "aggregator.patch_embed."
+        dino_state = {k: v for k, v in full_state.items() if k.startswith(prefix)}
+
+        # Free the huge full_state dictionary immediately
+        del full_state
+        gc.collect() 
+
+        # Load strictly the filtered weights
+        # We must use strict=False because we are intentionally missing the rest of the model
+        keys = vggt_omega.load_state_dict(dino_state, strict=False)
+
+        backbone = VggtOmegaDino(VggtOmegaDino, **kwargs)
+
+        #Final cleanup
+        del vggt_omega
+        del dino_state
+        gc.collect()
+
+        return backbone
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        if len(images.shape) == 4:
+            images = images.unsqueeze(0)
+        B, S, C_in, H, W = images.shape
+
+        amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        with torch.autocast(device_type="cuda", dtype=amp_dtype):
+            patch_tokens = self.dino_forward(images)
+            f, t = self.prepare_tokens_for_salad(patch_tokens, (B, S, C_in, H, W))
+
+        return f, t
