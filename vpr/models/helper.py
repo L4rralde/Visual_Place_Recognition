@@ -32,6 +32,13 @@ def get_backbone(
             backbone_arch,
             **backbone_config
         )
+    elif 'vggt_omega' in backbone_arch.lower():
+        from .backbones.vggt_omega import VggtOmegaDino
+        try:
+            checkpoint = backbone_config.pop('vggt_omega_checkpoint')
+        except KeyError:
+            raise RuntimeError("VGGTOmega Checkpoint must be passed")
+        backbone = VggtOmegaDino.from_pretrained(checkpoint, **backbone_config)
     elif 'vggt' in backbone_arch.lower():
         from .backbones.vggt import VggtDino
         backbone = VggtDino.from_pretrained(**backbone_config)
@@ -55,7 +62,10 @@ def get_transforms(backbone_arch: str, input_config: dict) -> Tuple[Callable]:
     elif 'da3' in backbone_arch.lower():
         from .backbones.da3 import get_transforms as da3_get_transforms
         train_transform, valid_transform = da3_get_transforms(input_config)
-    elif 'vggt' in backbone_arch.lower():
+    elif 'vggt_omega' in backbone_arch.lower():
+        from .backbones.vggt_omega import get_transforms as vggt_omega_get_transforms
+        train_transform, valid_transform = vggt_omega_get_transforms(input_config)
+    elif 'vggt' in backbone_arch.lower(): #FIXME. Instead of `in``, use something like `startswith`
         from .backbones.vggt import get_transforms as vggt_get_transforms
         train_transform, valid_transform = vggt_get_transforms(input_config)
     elif 'map_anything' in backbone_arch.lower():
