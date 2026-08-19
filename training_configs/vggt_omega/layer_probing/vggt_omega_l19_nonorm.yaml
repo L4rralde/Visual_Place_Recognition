@@ -5,7 +5,7 @@ backbone_arch: "vggt_omega"
 
 input_config:
   img_size: *process_res #Actually, this one is not used at all.
-  #mode: "max_size" #default is "balanced"
+  mode: "max_size" #default is "balanced"
 
 backbone_config:
   frozen: true
