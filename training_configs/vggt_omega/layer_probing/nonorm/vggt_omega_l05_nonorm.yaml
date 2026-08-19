@@ -1,5 +1,5 @@
 #define: &process_res 512 #This is the largest dimension.
-define: &process_res 256 #Must train with 368. Not achivable with mode balanced using only 16GB VRAM.
+define: &process_res 368 #Must train with 368. Not achivable with mode balanced using only 16GB VRAM.
 
 backbone_arch: "vggt_omega"
 
@@ -10,8 +10,8 @@ input_config:
 backbone_config:
   frozen: true
   norm_layer: false
-  probing_from_layer: 19
-  vggt_omega_checkpoint: "/home/emmanuel/Desktop/tesis/vggt-omega/vggt_omega_1b_512.pt"
+  probing_from_layer: 5
+  vggt_omega_checkpoint: "vggt_omega_1b_512.pt"
 
 agg_config:
   #num_channels from dinov2-large
@@ -19,4 +19,4 @@ agg_config:
   cluster_dim: 128
   token_dim: 256
 
-max_epochs: 4
+max_epochs: 1

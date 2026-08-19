@@ -8,13 +8,15 @@ input_config:
   mode: "max_size" #default is "balanced"
 
 backbone_config:
-  vggt_omega_checkpoint: "vggt_omega_1b_512.pt"
   frozen: true
+  norm_layer: false
+  probing_from_layer: 7
+  vggt_omega_checkpoint: "vggt_omega_1b_512.pt"
 
 agg_config:
-  #num_channels from dinov3-large
+  #num_channels from dinov2-large
   num_clusters: 64
   cluster_dim: 128
   token_dim: 256
 
-max_epochs: 4
+max_epochs: 1
