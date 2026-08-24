@@ -1,5 +1,5 @@
 #define: &process_res 512 #This is the largest dimension.
-define: &process_res 256 #Must train with 368. Not achivable with mode balanced using only 16GB VRAM.
+define: &process_res 368 #Must train with 368. Not achivable with mode balanced using only 16GB VRAM.
 
 backbone_arch: "vggt_omega"
 
