@@ -8,11 +8,12 @@ from PIL import Image
 import numpy as np
 
 from .transforms import preprocess_image
+from .dino3_blocks import vit_large_blocks
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from vggt_omega.models.vggt_omega import VGGTOmega
 from vggt_omega.utils.load_fn import load_and_preprocess_images
 from vggt_omega.utils.pose_enc import encoding_to_camera
-from vggt_omega.models.aggregator import slice_expand_and_flatten, Aggregator
+from vggt_omega.models.aggregator import slice_expand_and_flatten
 from vggt_omega.models.layers.vision_transformer import DinoVisionTransformer
 
 
@@ -33,6 +34,7 @@ class VggtOmegaBase(nn.Module):
             print("num_trainable_blocks argument is not supported for VGGT backbone. VGGT is used as is")
         self.norm_layer = kwargs.get('norm_layer', True)
         self.probing_from_layer: int = kwargs.get('probing_from_layer', -1)
+        self.adapter_depth: int = kwargs.get('adapter_depth', 0)
         self.num_channels = vggt_omega.aggregator.patch_embed.embed_dim
         self.PATCH_SIZE = self.patch_size = vggt_omega.aggregator.patch_size
         self.register_buffer(
@@ -135,6 +137,11 @@ class VggtOmegaBase(nn.Module):
             x = blk(x, rope_sincos)
             if i == self.probing_from_layer:
                 x_for_salad = x.clone()
+
+        if isinstance(self.adapter, nn.Identity):
+            x_for_salad = self.adapter(x_for_salad)
+        else:
+            x_for_salad = self.adapter(x_for_salad, rope)
         
         x_norm = self.dino.norm(x)
         if self.norm_layer:
@@ -240,7 +247,6 @@ class VggtOmegaBase(nn.Module):
                 )
 
         return predictions
-    
 
     def forward(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
         if len(images.shape) == 4:
@@ -287,11 +293,31 @@ class VggtOmegaBase(nn.Module):
             **heads_predictions
         }
 
+    def make_adapter(self, adapter_depth: int=0) -> nn.Module:
+        assert adapter_depth >= 0
+
+        if adapter_depth == 0:
+            return nn.Identity()
+
+        n_used_blocks = self.probing_from_layer + 1
+        assert self.dino.n_blocks >= n_used_blocks + adapter_depth, \
+            f"Model depth ({self.dino.n_blocks} is too shallow for probing layer {self.probing_from_layer} and adapter depth of {adapter_depth})"
+
+        dino_blocks_idcs_for_adapter = [
+            self.probing_from_layer + i + 1
+            for i in range(adapter_depth)
+        ]
+
+        #Here comes the magic
+        adapter = vit_large_blocks(self.dino, dino_blocks_idcs_for_adapter)
+
+        return adapter
 
 class VggtOmegaBackbone(VggtOmegaBase):
     def __init__(self, vggt_omega: VGGTOmega, **kwargs):
         super().__init__(vggt_omega, **kwargs)
         self._vggt_omega = vggt_omega
+        self.adapter = self.make_adapter(self.adapter_depth)
         self._clip_probing_from_layer()
 
     @staticmethod
@@ -304,6 +330,7 @@ class VggtOmegaDino(VggtOmegaBase):
     def __init__(self, vggt_omega: VGGTOmega, norm_layer: bool=True, **kwargs):
         super().__init__(vggt_omega, norm_layer=norm_layer, **kwargs)
         self._dino = vggt_omega.aggregator.patch_embed
+        self.adapter = self.make_adapter(self.adapter_depth)
         self._clip_probing_from_layer()
 
     @staticmethod

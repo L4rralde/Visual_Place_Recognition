@@ -90,6 +90,9 @@ def freeze_model(model) -> None:
         param.requires_grad = False
     model.eval()
     if hasattr(model, 'adapter'):
+        if hasattr(model.adapter, 'unfreeze') and callable(model.adapter.unfreeze):
+            model.adapter.unfreeze()
+            return
         for param in model.adapter.parameters():
             param.requires_grad = True
         model.adapter.train()
