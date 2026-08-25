@@ -1,5 +1,4 @@
 from typing import List, Optional, Any, Literal, Tuple
-from functools import partial
 
 import torch
 import torch.nn as nn
@@ -7,12 +6,10 @@ import torch.nn as nn
 from .vggt_omega.models.layers import (
     RopePositionEmbedding,
     SelfAttentionBlock,
-    RMSNorm
 )
 from .vggt_omega.models.layers.vision_transformer import (
     norm_layer_dict,
     ffn_layer_dict,
-    dtype_dict,
     DinoVisionTransformer
 )
 
@@ -62,10 +59,17 @@ class Dinov3BlocksAdapter(nn.Module):
             for i in range(len(block_idcs))
         ]
         for new_blk, blk in zip(new_block_list, block_list):
-            new_blk.load_state_dict(blk.state_dict())
+            missing, unexpected = new_blk.load_state_dict(
+                blk.state_dict(),
+                strict=False,
+            )
+
+            assert not missing, missing
+            assert not unexpected, unexpected
+
         self.blocks = nn.ModuleList(new_block_list)
 
-    def forward(self, x: torch.Tensor, rope: Tuple[int]):
+    def forward(self, x: torch.Tensor, rope: Tuple[int, int]):
         if self.rope_embed is not None:
             H, W = rope
             rope_sincos = self.rope_embed(H=H, W=W)
