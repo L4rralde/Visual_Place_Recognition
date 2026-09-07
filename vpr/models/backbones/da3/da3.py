@@ -183,8 +183,9 @@ class DepthAnything3Backbone(nn.Module):
 
         return feats
 
-    def _aux_layers_feats(self, aux_outputs: torch.Tensor) -> None:
-        aux_outputs = [self.dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
+    def _aux_layers_feats(self, aux_outputs: torch.Tensor, norm:bool=True) -> None:
+        if norm:
+            aux_outputs = [self.dino.norm(out) for out in aux_outputs] #Applying final ViT norm layer
         cls_outputs = [out[..., 0, :] for out in aux_outputs]
         aux_feats = [out[..., 1 + self.dino.num_register_tokens :, :] for out in aux_outputs]
 
@@ -343,9 +344,10 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         super().__init__(da3, keep_da3=False)
         if 'num_trainable_blocks' in kwargs:
             print("num_trainable_blocks argument is not supported for da3 backbone. DA3 is used as is")
-        if 'norm_layer' in kwargs:
-            print("norm_layer argument flag is not supported for da3. DA3 is used as is")
         self._dino: DinoVisionTransformer = da3.model.backbone.pretrained
+        self.norm_layer = kwargs.get('norm_layer', True)
+        self.probing_from_layer: int = kwargs.get('probing_from_layer', -1)
+        self._clip_probing_from_layer()
 
     @property
     def dino(self) -> DinoVisionTransformer:
@@ -359,7 +361,6 @@ class DepthAnything3Dino(DepthAnything3Backbone):
     def forward(
         self,
         x: torch.Tensor,
-        feat_layer: int = -1, #FUTURE: must be a backbone config, i.e., add to yaml and pass in __init__
         process_res: int = -1,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -375,9 +376,7 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         device = self._get_model_device()
         imgs = imgs_cpu.to(device, non_blocking=True)[None].float()
 
-        if feat_layer == -1:
-            feat_layer = self.dino.alt_start - 1
-        assert feat_layer < self.dino.alt_start, "Double check what's the last layer before alternate attention"
+        feat_layer = self.probing_from_layer
         feat_layers = [feat_layer]
 
         autocast_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
@@ -393,7 +392,7 @@ class DepthAnything3Dino(DepthAnything3Backbone):
                 **kwargs
             )
             
-            aux_feats, cls_token = self._aux_layers_feats(aux_outputs)
+            aux_feats, cls_token = self._aux_layers_feats(aux_outputs, norm=self.norm_layer)
 
             output = Dict()
             H, W = imgs.shape[-2], imgs.shape[-1]
@@ -420,6 +419,12 @@ class DepthAnything3Dino(DepthAnything3Backbone):
         f_reshaped, t_reshaped = self._format_output_for_salad(output, feat_layer)
 
         return f_reshaped, t_reshaped
+    
+    def _clip_probing_from_layer(self) -> int:
+        if self.probing_from_layer < 0:
+            self.probing_from_layer = self.dino.alt_start + self.probing_from_layer
+        assert 0 <= self.probing_from_layer < self.dino.alt_start, \
+            "Index probing_from_layer out of range"
         
 
 def intermediate_features(
