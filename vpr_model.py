@@ -16,6 +16,47 @@ import utils
 from vpr.models import helper, SALAD
 
 
+class ParameterUpdateChecker(pl.Callback):
+    def __init__(self, atol=1e-12):
+        super().__init__()
+        self.atol = atol
+        self._before_step = {}
+
+    def on_before_optimizer_step(self, trainer, pl_module, optimizer):
+        # Snapshot parameters before the optimizer updates them
+        self._before_step = {
+            name: param.detach().clone()
+            for name, param in pl_module.named_parameters()
+            if param.requires_grad
+        }
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        # Compare parameters after the optimizer step
+        updated = []
+        unchanged = []
+
+        for name, param in pl_module.named_parameters():
+            if name not in self._before_step:
+                continue
+
+            before = self._before_step[name]
+            after = param.detach()
+
+            if not torch.allclose(before, after, atol=self.atol, rtol=0):
+                updated.append(name)
+            else:
+                unchanged.append(name)
+
+        print(f"\nBatch {batch_idx}:")
+        print("Updated parameters:")
+        for name in updated:
+            print(name)
+
+        print("Unchanged parameters:")
+        for name in unchanged:
+            print(name)
+
+
 class VPRModel(pl.LightningModule):
     """This is the main model for Visual Place Recognition
     we use Pytorch Lightning for modularity purposes.
