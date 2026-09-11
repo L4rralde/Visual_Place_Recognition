@@ -73,13 +73,24 @@ class DinoBlocksAdapter(nn.Module):
         for new_blk, blk in zip(new_block_list, block_list):
             new_blk.load_state_dict(blk.state_dict())
         self.blocks = nn.ModuleList(new_block_list)
+        self.__frozen: bool=True
 
     def forward(self, x: torch.Tensor):
         for blk in self.blocks:
             x = blk(x)
         
         return x
-    
+
+    def unfreeze(self) -> None:
+        if not self.__frozen:
+            return
+
+        print(f"Unfreezing {self.__class__.__name__} adapter")
+        for param in self.blocks.parameters():
+            param.requires_grad = True
+        self.blocks.train()
+        self.__frozen = False
+
 
 def vit_large_blocks(dino_vit, block_idcs, **kwargs):
     block_list = [dino_vit.blocks[i] for i in block_idcs]
