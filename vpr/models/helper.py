@@ -86,13 +86,7 @@ DINO_EMBEDDING_DIMS = {
 
 
 def freeze_model(model) -> None:
+    #Now, by default, only the aggregator is trainable at the begining.
     for param in model.parameters():
         param.requires_grad = False
     model.eval()
-    if hasattr(model, 'adapter'):
-        if hasattr(model.adapter, 'unfreeze') and callable(model.adapter.unfreeze):
-            model.adapter.unfreeze()
-            return
-        for param in model.adapter.parameters():
-            param.requires_grad = True
-        model.adapter.train()

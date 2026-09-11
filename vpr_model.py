@@ -351,3 +351,7 @@ class VPRModel(pl.LightningModule):
 
         # reset the outputs list
         self.val_outputs = []
+
+        if self.current_epoch==0 and hasattr(self.backbone, "adapter"):
+            self.backbone.adapter.unfreeze()
+    
