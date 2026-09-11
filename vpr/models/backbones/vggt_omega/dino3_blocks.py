@@ -68,6 +68,7 @@ class Dinov3BlocksAdapter(nn.Module):
             assert not unexpected, unexpected
 
         self.blocks = nn.ModuleList(new_block_list)
+        self.__frozen: bool = True
 
     def forward(self, x: torch.Tensor, rope: Tuple[int, int]):
         if self.rope_embed is not None:
@@ -81,9 +82,14 @@ class Dinov3BlocksAdapter(nn.Module):
         return x
 
     def unfreeze(self) -> None:
+        if not self.__frozen:
+            return
+
+        print(f"Unfreezing {self.__class__.__name__} adapter")
         for param in self.blocks.parameters():
             param.requires_grad = True
         self.blocks.train()
+        self.__frozen = False
 
 
 def vit_large_blocks(
