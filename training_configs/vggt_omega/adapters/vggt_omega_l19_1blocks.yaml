@@ -13,6 +13,7 @@ backbone_config:
   probing_from_layer: 19
   vggt_omega_checkpoint: "vggt_omega_1b_512.pt"
   adapter_depth: 1
+  adapter_lr: 2e-4
 
 agg_config:
   #num_channels from dinov2-large
