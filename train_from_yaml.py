@@ -53,14 +53,16 @@ if __name__ == '__main__':
         val_set_names=['pitts30k_val', 'pitts30k_test'], #FIXME. By the moment, the transformation used for da3dino does not work with msls_val because there are images with different aspect ratios
     )
 
+    lr = 6e-5
+    adapter_lr = float(backbone_config.get('adapter_lr', lr))
     model = VPRModel(
         #---- Encoder
         backbone_arch=backbone_arch,
         backbone_config=backbone_config,
         agg_arch='SALAD',
         agg_config=agg_config,
-        lr = 6e-5,
-        adapter_lr = backbone_config.get('adapter_lr', 6e-5),
+        lr = lr,
+        adapter_lr = adapter_lr,
         optimizer='adamw',
         weight_decay=9.5e-9, # 0.001 for sgd and 0 for adam,
         momentum=0.9,
