@@ -60,6 +60,7 @@ if __name__ == '__main__':
         agg_arch='SALAD',
         agg_config=agg_config,
         lr = 6e-5,
+        adapter_lr = 1e-4,
         optimizer='adamw',
         weight_decay=9.5e-9, # 0.001 for sgd and 0 for adam,
         momentum=0.9,

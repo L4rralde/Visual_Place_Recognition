@@ -34,7 +34,8 @@ class VPRModel(pl.LightningModule):
         agg_config={},
         
         #---- Train hyperparameters
-        lr=0.03, 
+        lr=0.03,
+        adapter_lr=None, 
         optimizer='sgd',
         weight_decay=1e-3,
         momentum=0.9,
@@ -63,6 +64,10 @@ class VPRModel(pl.LightningModule):
 
         # Train hyperparameters
         self.lr = lr
+        if adapter_lr is not None:
+            self.adapter_lr = adapter_lr
+        else:
+            self.adapter_lr = lr
         self.optimizer = optimizer
         self.weight_decay = weight_decay
         self.momentum = momentum
@@ -136,10 +141,25 @@ class VPRModel(pl.LightningModule):
                 momentum=self.momentum
             )
         elif self.optimizer.lower() == 'adamw':
+            if hasattr(self.backbone, "adapter"):
+                adapter_set = set(self.backbone.adapter.parameters())
+                
+                base_params = [p for p in self.parameters() if p not in adapter_set]
+                adapter_params = list(self.backbone.adapter.parameters())
+
+                param_groups = [
+                    {'params': base_params},
+                    {
+                        'params': adapter_params, 
+                        'lr': getattr(self, 'adapter_lr', self.lr),
+                    },
+                ]
+            else:
+                param_groups = self.parameters()
             optimizer = torch.optim.AdamW(
-                self.parameters(), 
-                lr=self.lr, 
-                weight_decay=self.weight_decay
+                param_groups,
+                lr=self.lr,
+                weight_decay=self.weight_decay,
             )
         elif self.optimizer.lower() == 'adam':
             optimizer = torch.optim.AdamW(
