@@ -3,6 +3,7 @@ from typing import List
 
 import torch
 import torch.nn as nn
+from peft import LoraConfig, get_peft_model #LoRA finetuning. From HuggingFace
 
 from vpr.models.backbones.vggt.vggt.layers import(
     Mlp,
@@ -73,7 +74,7 @@ class DinoBlocksAdapter(nn.Module):
         for new_blk, blk in zip(new_block_list, block_list):
             new_blk.load_state_dict(blk.state_dict())
         self.blocks = nn.ModuleList(new_block_list)
-        self.__frozen: bool=True
+        self._frozen: bool=True
 
     def forward(self, x: torch.Tensor):
         for blk in self.blocks:
@@ -82,14 +83,90 @@ class DinoBlocksAdapter(nn.Module):
         return x
 
     def unfreeze(self) -> None:
-        if not self.__frozen:
+        if not self._frozen:
             return
 
         print(f"Unfreezing {self.__class__.__name__} adapter")
         for param in self.blocks.parameters():
             param.requires_grad = True
         self.blocks.train()
-        self.__frozen = False
+        self._frozen = False
+
+
+class DinoBlocksLoraAdapter(DinoBlocksAdapter):
+    def __init__(
+            self, 
+            block_list,
+            block_idcs,
+            embed_dim,
+            depth,
+            num_heads,
+            mlp_ratio,
+            qkv_bias = True,
+            ffn_bias = True,
+            proj_bias = True, 
+            drop_path_rate = 0,
+            drop_path_uniform = False,
+            init_values = None,
+            act_layer = nn.GELU,
+            block_fn=Block,
+            ffn_layer="mlp", 
+            qk_norm = False,
+            lora_rank: int = 8,
+            lora_alpha: int = 16,
+            lora_dropout: float = 0.1,
+        ):
+        super().__init__(
+            block_list,
+            block_idcs,
+            embed_dim,
+            depth,
+            num_heads,
+            mlp_ratio,
+            qkv_bias,
+            ffn_bias,
+            proj_bias,
+            drop_path_rate,
+            drop_path_uniform,
+            init_values,
+            act_layer,
+            block_fn,
+            ffn_layer, 
+            qk_norm,
+        )
+
+        self._lora_rank = lora_rank
+
+        lora_config = LoraConfig(
+            r=self._lora_rank,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            target_modules=["qkv", "proj"],
+        )
+
+        self.blocks = nn.ModuleList([
+            get_peft_model(blk, lora_config) 
+            for blk in self.blocks
+        ])
+
+        self.freeze()
+
+    def freeze(self):
+        """Freezes all parameters in the adapter."""
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def unfreeze(self):
+        if not self._frozen:
+            return
+
+        print(f"Unfreezing {self.__class__.__name__} adapter")
+        for name, param in self.blocks.named_parameters():
+            if "lora_" in name:
+                param.requires_grad = True
+        
+        self.blocks.train()
+        self._frozen = False
 
 
 def vit_large_blocks(dino_vit, block_idcs, **kwargs):
@@ -98,7 +175,7 @@ def vit_large_blocks(dino_vit, block_idcs, **kwargs):
     assert dino_vit.n_blocks == 24
     assert dino_vit.num_heads == 16
     init_values = kwargs.pop('init_values', 1.0)
-    model = DinoBlocksAdapter(
+    model = DinoBlocksLoraAdapter(
         block_list,
         block_idcs,
         embed_dim=1024,
