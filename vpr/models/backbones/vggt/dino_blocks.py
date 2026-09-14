@@ -32,6 +32,7 @@ class DinoBlocksAdapter(nn.Module):
         block_fn=Block,
         ffn_layer="mlp",
         qk_norm: bool=False,
+        **kwargs
     ):
         super().__init__()
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
@@ -115,6 +116,7 @@ class DinoBlocksLoraAdapter(DinoBlocksAdapter):
             lora_rank: int = 8,
             lora_alpha: int = 16,
             lora_dropout: float = 0.1,
+            **kwargs
         ):
         super().__init__(
             block_list,
@@ -175,7 +177,12 @@ def vit_large_blocks(dino_vit, block_idcs, **kwargs):
     assert dino_vit.n_blocks == 24
     assert dino_vit.num_heads == 16
     init_values = kwargs.pop('init_values', 1.0)
-    model = DinoBlocksLoraAdapter(
+    if kwargs.get('lora', False):
+        block_type = DinoBlocksLoraAdapter
+    else:
+        block_type = DinoBlocksAdapter
+
+    model = block_type(
         block_list,
         block_idcs,
         embed_dim=1024,
