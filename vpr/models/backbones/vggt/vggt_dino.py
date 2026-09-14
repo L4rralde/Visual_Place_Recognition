@@ -146,7 +146,11 @@ class VggtBase(nn.Module):
             return self._vggt.aggregator.patch_embed
         raise RuntimeError("self.dino is not set in this class")
 
-    def make_adapter(self, adapter_depth: int=0) -> nn.Module:
+    def make_adapter(
+        self,
+        adapter_depth: int=0,
+        **kwargs
+    ) -> nn.Module:
         assert adapter_depth >= 0
 
         if adapter_depth == 0:
@@ -160,7 +164,11 @@ class VggtBase(nn.Module):
             self.probing_from_layer + i + 1
             for i in range(adapter_depth)
         ]
-        adapter = vit_large_blocks(self.dino, dino_blocks_idcs_for_adapter)
+        adapter = vit_large_blocks(
+            self.dino,
+            dino_blocks_idcs_for_adapter,
+            **kwargs
+        )
         return adapter
 
     def inference(self, img_path_list: List[str]) -> dict:
@@ -416,7 +424,7 @@ class VggtBackbone(VggtBase):
     def __init__(self, vggt, **kwargs):
         super().__init__(vggt, **kwargs)
         self._vggt = vggt
-        self.adapter = self.make_adapter(self.adapter_depth)
+        self.adapter = self.make_adapter(self.adapter_depth, **kwargs)
         self._clip_probing_from_layer()
 
     @staticmethod
@@ -429,7 +437,10 @@ class VggtDino(VggtBase):
     def __init__(self, vggt: VGGT, norm_layer: bool=True, **kwargs):
         super().__init__(vggt, norm_layer=norm_layer, **kwargs)
         self._dino = vggt.aggregator.patch_embed
-        self.adapter = self.make_adapter(self.adapter_depth)
+        if 'adapter_depth' in kwargs:
+            adapter_depth = kwargs.pop('adapter_depth')
+            assert adapter_depth == self.adapter_depth
+        self.adapter = self.make_adapter(self.adapter_depth, **kwargs)
         self._clip_probing_from_layer()
 
     @staticmethod
