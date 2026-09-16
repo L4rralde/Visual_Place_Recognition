@@ -152,15 +152,15 @@ class VPRModel(pl.LightningModule):
             log.backbone_config,
             log.agg_arch,
             log.agg_config,
-            log.conf['lr'],
-            log.conf['optimizer'],
-            log.conf['weight_decay'],
-            log.conf['momentum'],
-            log.conf['lr_sched'],
-            log.conf['lr_sched_args'],
-            log.conf['loss_name'],
-            log.conf['miner_name'],
-            log.conf['miner_margin']
+            lr = log.conf['lr'],
+            optimizer=log.conf['optimizer'],
+            weight_decay=log.conf['weight_decay'],
+            momentum=log.conf['momentum'],
+            lr_sched=log.conf['lr_sched'],
+            lr_sched_args=log.conf['lr_sched_args'],
+            loss_name=log.conf['loss_name'],
+            miner_name=log.conf['miner_name'],
+            miner_margin=log.conf['miner_margin']
         )
         model.load_state_dict(log.state_dict)
 
