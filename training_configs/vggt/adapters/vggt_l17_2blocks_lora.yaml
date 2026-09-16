@@ -11,7 +11,7 @@ backbone_config:
   norm_layer: false
   probing_from_layer: 17
   adapter_depth: 2
-  lora: ture
+  lora: true
   lora_rank: 8
 
 
