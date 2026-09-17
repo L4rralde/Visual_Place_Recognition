@@ -13,21 +13,30 @@ from tests.test_utils import ImgDirDataset
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('img_dir')
+    parser.add_argument('img_dirs', nargs='+')
     parser.add_argument('--batch-size', type=int, default=16)
-
+    parser.add_argument('--warmup-batches', type=int, default=50)
     args = parser.parse_args()
     return args
 
 
 def main():
     args = parse_args()
-    img_list = ImgDirDataset.scan_dir(args.img_dir)
+    img_list = []
+    for img_dir in args.img_dirs:
+        img_list += ImgDirDataset.scan_dir(img_dir)
+
     batch_size = args.batch_size
-    assert len(img_list) > 200*batch_size
-    
+    warmup_batches = args.warmup_batches
+    if not len(img_list) > 2*warmup_batches*batch_size:
+        raise RuntimeError("Not enough images")
+
+    img_list = img_list[:2*warmup_batches*batch_size]
+
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("Cuda is required")
     device = "cuda"
-    assert torch.cuda.is_available()
     dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
     model = load_pretrained_vggt().eval().to(device)
 
@@ -44,14 +53,32 @@ def main():
 
             with torch.cuda.amp.autocast(dtype=dtype):
                 starter.record()
-                predictions = model(images)
+                model(images)
                 ender.record()
-                starters.append(starter)
-                enders.append(ender)
+            starters.append(starter)
+            enders.append(ender)
+
 
         torch.cuda.synchronize()
     times = np.array([s.elapsed_time(e) for s, e in zip(starters, enders)])/1000.0
-    print(times[100:-1].mean())
+
+    avg_inf_time = times[warmup_batches:-1].mean()
+    fps = (batch_size) / avg_inf_time
+    print(f"Average inference time for batch size {batch_size}: {avg_inf_time}")
+    print(f"Throughput: {fps:.2f} img/s")
+
+    image_names = img_list[:batch_size]
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    images = load_and_preprocess_images(image_names).to(device)
+    with torch.no_grad():
+        with torch.cuda.amp.autocast(dtype=dtype):
+            model(images)
+
+    peak_allocated = torch.cuda.max_memory_allocated()
+    peak_reserved = torch.cuda.max_memory_reserved()
+    print(f"Peak allocated: {peak_allocated/1024**3:.2f} GB")
+    print(f"Peak reserved: {peak_reserved / 1024**3:.2f} GB")
 
 
 if __name__ == '__main__':
