@@ -28,6 +28,8 @@ def main():
     for img_dir in args.img_dirs:
         img_list += ImgDirDataset.scan_dir(img_dir)
 
+    img_list = list(set(img_list))
+
     batch_size = args.batch_size
     warmup_batches = args.warmup_batches
     if not len(img_list) > 2*warmup_batches*batch_size:
