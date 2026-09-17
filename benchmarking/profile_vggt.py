@@ -1,4 +1,6 @@
 from argparse import ArgumentParser
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import torch
 import numpy as np
