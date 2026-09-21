@@ -424,6 +424,9 @@ class VggtBackbone(VggtBase):
     def __init__(self, vggt, **kwargs):
         super().__init__(vggt, **kwargs)
         self._vggt = vggt
+        if 'adapter_depth' in kwargs:
+            adapter_depth = kwargs.pop('adapter_depth')
+            assert adapter_depth == self.adapter_depth
         self.adapter = self.make_adapter(self.adapter_depth, **kwargs)
         self._clip_probing_from_layer()
 
