@@ -76,11 +76,12 @@ class VggtOmegaSalad(nn.Module):
         amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         with torch.autocast(device_type="cuda", dtype=amp_dtype):
             patch_tokens = self.backbone.dino_forward(images)
-            feats, cls = self.prepare_tokens_for_salad(
+
+            feats, cls = self.backbone.prepare_tokens_for_salad(
                 patch_tokens, 
                 (batch_size, num_frames, num_channels, height, width)
             )
-
+            
             if isinstance(patch_tokens, dict):
                 patch_tokens = patch_tokens["x_norm_patchtokens"]
             
@@ -95,35 +96,39 @@ class VggtOmegaSalad(nn.Module):
                 batch_size,
                 num_frames
             )
+            aggregated_tokens_list, patch_token_start = self.backbone.alternate_attention(
+                img_shape = (batch_size, num_frames, num_channels, height, width),
+                tokens=torch.cat([camera_token, register_token, patch_tokens], dim=1),
+                patch_tokens=patch_tokens,
+            )
 
         global_descriptor = self.aggregator((feats, cls))
         if len(global_descriptor.shape) == 2:
             global_descriptor = global_descriptor.unsqueeze(0)
 
-        aggregated_tokens_list, patch_token_start = self.backbone.alternate_attention(
-            img_shape = (batch_size, num_frames, num_channels, height, width),
-            tokens=torch.cat([camera_token, register_token, patch_tokens], dim=1),
-            patch_tokens=patch_tokens,
-        )
-
         final_tokens = aggregated_tokens_list[-1]
         if final_tokens is None:
             raise ValueError("Alternate attention blocks did not cache the final layer, which VGGTOmega needs.")
-        
-        predictions = self.backbone.heads_forward(
+
+        predictions = {"images": images}
+
+        heads_predictions = self.backbone.heads_forward(
             images,
             aggregated_tokens_list,
             patch_token_start
         )
 
         predictions['descriptor'] = global_descriptor
-        return predictions
+        return {
+            **predictions,
+            **heads_predictions
+        }
 
     def inference(self, img_path_list: List[str], **kwargs) -> Dict[str, np.ndarray]:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is required")
     
-        DEVICE = "CUDA"
+        DEVICE = "cuda"
         images = load_and_preprocess_images(img_path_list, **kwargs).to(DEVICE)
         with torch.inference_mode():
             predictions = self.forward(images)
