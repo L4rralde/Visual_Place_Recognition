@@ -254,3 +254,48 @@ def mapanything_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     mapanything_salad.aggregator.load_state_dict(salad_state_dict)
 
     return mapanything_salad
+
+
+_vggt_omega_l20_config = _Config(
+    backbone_arch="VGGT_OMEGA",
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 20
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url='https://github.com/L4rralde/Visual_Place_Recognition/releases/download/vggt_omega_pre_weights/vggt_omega_l20_salad.ckpt'
+)
+
+
+def vggto_s_pre(
+    vpr_repo_path: str,
+    vggt_omega_ckpt: str,
+    **kwargs
+) -> torch.nn.Module:
+    if vpr_repo_path not in sys.path:
+        sys.path.insert(0, vpr_repo_path)
+        sys.path.insert(0, os.path.join(vpr_repo_path, "submodules", "vggt-omega"))
+
+    from model_flavors.vggt_omega_salad import VggtOmegaSalad
+    from vpr.models.backbones.vggt_omega import load_pretrained_vggt_omega
+
+    backbone_arch = _vggt_omega_l20_config.backbone_arch
+    backbone_config = _vggt_omega_l20_config.backbone_config
+    salad_config = _vggt_omega_l20_config.salad_config
+
+    vggt_omega = load_pretrained_vggt_omega(vggt_omega_ckpt)
+    vggto_salad = VggtOmegaSalad(
+        vggt_omega,
+        backbone_config,
+        salad_config
+    )
+    url = _vggt_omega_l20_config.url
+    salad_state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu')
+    vggto_salad.aggregator.load_state_dict(salad_state_dict)
+
+    return vggto_salad
