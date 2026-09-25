@@ -1,4 +1,5 @@
-from typing import List, Optional, Any, Literal, Tuple
+from typing import List, Optional, Any, Literal, Tuple, Type
+from functools import partial
 
 import torch
 import torch.nn as nn
@@ -12,6 +13,9 @@ from .vggt_omega.models.layers.vision_transformer import (
     ffn_layer_dict,
     DinoVisionTransformer
 )
+from .self_attention_lora import SelfAttentionLora
+from .vggt_omega.models.layers.attention import SelfAttention
+
 
 class Dinov3BlocksAdapter(nn.Module):
     def __init__(
@@ -31,6 +35,8 @@ class Dinov3BlocksAdapter(nn.Module):
         drop_path_rate: float = 0.0,
         layerscale_init: Optional[float] = None,
         mask_k_bias: bool = False,
+        attn_class: Type[SelfAttention]=SelfAttention,
+        **kwargs
     ) -> None:
         super().__init__()
         assert len(block_list) == len(block_idcs)
@@ -55,6 +61,7 @@ class Dinov3BlocksAdapter(nn.Module):
                 init_values=layerscale_init,
                 mask_k_bias=mask_k_bias,
                 device=device,
+                attn_class=attn_class
             )
             for i in range(len(block_idcs))
         ]
@@ -64,11 +71,15 @@ class Dinov3BlocksAdapter(nn.Module):
                 strict=False,
             )
 
+            missing = [
+                name for name in missing
+                if not "lora_" in name
+            ]
             assert not missing, missing
             assert not unexpected, unexpected
 
         self.blocks = nn.ModuleList(new_block_list)
-        self.__frozen: bool = True
+        self._frozen: bool = True
 
     def forward(self, x: torch.Tensor, rope: Tuple[int, int]):
         if self.rope_embed is not None:
@@ -82,14 +93,74 @@ class Dinov3BlocksAdapter(nn.Module):
         return x
 
     def unfreeze(self) -> None:
-        if not self.__frozen:
+        if not self._frozen:
             return
 
         print(f"Unfreezing {self.__class__.__name__} adapter")
         for param in self.blocks.parameters():
             param.requires_grad = True
         self.blocks.train()
-        self.__frozen = False
+        self._frozen = False
+
+
+class Dinov3BlocksAdapterLora(Dinov3BlocksAdapter):
+    def __init__(
+        self,
+        block_list,
+        block_idcs,
+        embed_dim,
+        num_heads,
+        rope_embed,
+        device = None,
+        norm_layer = "layernorm",
+        ffn_ratio = 4,
+        qkv_bias = True,
+        ffn_bias = True,
+        proj_bias = True,
+        ffn_layer = "mlp",
+        drop_path_rate = 0,
+        layerscale_init = None,
+        mask_k_bias = False,
+        lora_rank: int=16,
+        lora_alpha: int=32,
+        lora_dropout: float=0.1,
+        **kwargs
+    ):
+        attn_class = partial(
+            SelfAttentionLora,
+            lora_r=lora_rank,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout
+        )
+        super().__init__(
+            block_list,
+            block_idcs,
+            embed_dim,
+            num_heads,
+            rope_embed,
+            device,
+            norm_layer,
+            ffn_ratio,
+            qkv_bias,
+            ffn_bias,
+            proj_bias,
+            ffn_layer,
+            drop_path_rate,
+            layerscale_init,
+            mask_k_bias,
+            attn_class
+        )
+    
+    def unfreeze(self) -> None:
+        if not self._frozen:
+            return
+
+        print(f"Unfreezing {self.__class__.__name__} adapter")
+        for name, param in self.blocks.named_parameters():
+            if "lora_" in name:
+                param.requires_grad = True
+        self.blocks.train()
+        self._frozen = False
 
 
 def vit_large_blocks(
@@ -102,7 +173,12 @@ def vit_large_blocks(
     assert dino_vit.embed_dim == 1024
     assert dino_vit.num_heads == 16
 
-    adapter = Dinov3BlocksAdapter(
+    if kwargs.get("lora", False):
+        block_type = Dinov3BlocksAdapterLora
+    else:
+        block_type = Dinov3BlocksAdapter
+    
+    adapter = block_type(
         block_list,
         block_idcs,
         embed_dim=1024,
