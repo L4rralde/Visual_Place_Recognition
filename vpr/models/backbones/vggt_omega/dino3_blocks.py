@@ -175,8 +175,13 @@ def vit_large_blocks(
 
     if kwargs.get("lora", False):
         block_type = Dinov3BlocksAdapterLora
+        block_args = {
+            k: v for k, v in kwargs.items()
+            if 'lora' in k
+        }
     else:
         block_type = Dinov3BlocksAdapter
+        block_args = {}
     
     adapter = block_type(
         block_list,
@@ -188,7 +193,7 @@ def vit_large_blocks(
         norm_layer="layernormbf16",
         layerscale_init=1e-05,
         mask_k_bias=True,
-        **kwargs
+        **block_args
     )
 
     return adapter

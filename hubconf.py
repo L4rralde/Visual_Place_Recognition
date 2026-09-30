@@ -121,6 +121,46 @@ _vggt_l19_4adap_config = _Config(
     url=f"{PROBING_URL}/vggt_l19_4adapters.pth"
 )
 
+
+VGGT_LORA_URL = "https://github.com/L4rralde/Visual_Place_Recognition/releases/download/vggt_lora_pre_weights/"
+
+_vggt_l19_2adap_lora_config = _Config(
+    backbone_arch='vggt',
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 17,
+        "adapter_depth": 2,
+        "lora": True,
+        "lora_rank": 8
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url=f"{VGGT_LORA_URL}/vggt_l17_2_lora.ckpt"
+)
+
+_vggt_l19_4adap_lora_config = _Config(
+    backbone_arch='vggt',
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 15,
+        "adapter_depth": 4,
+        "lora": True,
+        "lora_rank": 8
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url=f"{VGGT_LORA_URL}/vggt_l15_4_lora.ckpt"
+)
+
+
 _mapanything_config = _Config(
     backbone_arch='map_anything',
     backbone_config={"return_token": True},
@@ -237,6 +277,31 @@ def vggt_l19_salad_deep_adapters(vpr_repo_path: str, **kwargs) -> torch.nn.Modul
     return vggt_salad
 
 
+def __vggt_salad_adapters(_config: _Config, vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    if vpr_repo_path not in sys.path:
+        sys.path.insert(0, vpr_repo_path)
+        sys.path.insert(0, os.path.join(vpr_repo_path, "submodules", "vggt"))
+    from model_flavors.vggt_salad import VggtSalad
+    from vpr.models.backbones.vggt import load_pretrained_vggt
+    backbone_arch = _config.backbone_arch
+    backbone_config = _config.backbone_config
+    salad_config = _config.salad_config
+    vggt = load_pretrained_vggt()
+    vggt_salad = VggtSalad(vggt, backbone_config, salad_config)
+    url = _config.url
+    learned_state = torch.hub.load_state_dict_from_url(url, map_location='cpu')
+    vggt_salad.load_state_dict(learned_state, strict=False)
+    return vggt_salad
+
+
+def vggt_sp_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    return __vggt_salad_adapters(_vggt_l19_2adap_lora_config, vpr_repo_path, **kwargs)
+
+
+def vggt_spp_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    return __vggt_salad_adapters(_vggt_l19_4adap_lora_config, vpr_repo_path, **kwargs)
+
+
 def mapanything_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     if vpr_repo_path not in sys.path:
         sys.path.insert(0, vpr_repo_path)
@@ -297,5 +362,63 @@ def vggto_s_pre(
     url = _vggt_omega_l20_config.url
     salad_state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu')
     vggto_salad.aggregator.load_state_dict(salad_state_dict)
+
+    return vggto_salad
+
+
+_vggt_omega_l18_2_lora_config = _Config(
+    backbone_arch="VGGT_OMEGA",
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 18,
+        "adapter_depth": 2,
+        "lora": True,
+        "lora_rank": 16,
+        "lora_alpah": 32
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url='https://github.com/L4rralde/Visual_Place_Recognition/releases/download/vggt_omega_lora_pre/vggto_sp.ckpt'
+)
+
+
+def vggto_sp_pre(
+    vpr_repo_path: str,
+    vggt_omega_ckpt: str,
+    **kwargs
+) -> torch.nn.Module:
+    if vpr_repo_path not in sys.path:
+        sys.path.insert(0, vpr_repo_path)
+        sys.path.insert(0, os.path.join(vpr_repo_path, "submodules", "vggt-omega"))
+
+    from model_flavors.vggt_omega_salad import VggtOmegaSalad
+    from vpr.models.backbones.vggt_omega import load_pretrained_vggt_omega
+
+    backbone_arch = _vggt_omega_l18_2_lora_config.backbone_arch
+    backbone_config = _vggt_omega_l18_2_lora_config.backbone_config
+    salad_config = _vggt_omega_l18_2_lora_config.salad_config
+
+    vggt_omega = load_pretrained_vggt_omega(vggt_omega_ckpt)
+    vggto_salad = VggtOmegaSalad(
+        vggt_omega,
+        backbone_config,
+        salad_config
+    )
+
+    url = _vggt_omega_l18_2_lora_config.url
+    salad_state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu')
+    for p in salad_state_dict.keys():
+        print(p)
+    missing, unexpected = vggto_salad.load_state_dict(salad_state_dict, strict=False)
+    if unexpected:
+        raise RuntimeError(f"Loaded unexpected parameters: {unexpected}")
+    for p in missing:
+        if 'lora' in p or p.startswith('aggregator'):
+            raise RuntimeError(f"Missing trainable parameter: {p}")
+
 
     return vggto_salad
