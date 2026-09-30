@@ -55,6 +55,8 @@ class LoraLinear(nn.Module):
         if not isinstance(base, nn.Linear):
             raise ValueError("Base model is not linear")
         self.base = base
+        self.in_features = base.in_features
+        self.out_features = base.out_features
         for param in self.base.parameters():
             param.requires_grad = False
 
