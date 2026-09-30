@@ -411,8 +411,6 @@ def vggto_sp_pre(
 
     url = _vggt_omega_l18_2_lora_config.url
     salad_state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu')
-    for p in salad_state_dict.keys():
-        print(p)
     missing, unexpected = vggto_salad.load_state_dict(salad_state_dict, strict=False)
     if unexpected:
         raise RuntimeError(f"Loaded unexpected parameters: {unexpected}")
