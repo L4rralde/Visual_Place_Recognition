@@ -121,6 +121,46 @@ _vggt_l19_4adap_config = _Config(
     url=f"{PROBING_URL}/vggt_l19_4adapters.pth"
 )
 
+
+VGGT_LORA_URL = "https://github.com/L4rralde/Visual_Place_Recognition/releases/download/vggt_lora_pre_weights/"
+
+_vggt_l19_2adap_lora_config = _Config(
+    backbone_arch='vggt',
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 17,
+        "adapter_depth": 2,
+        "lora": True,
+        "lora_rank": 8
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url=f"{VGGT_LORA_URL}/vggt_l17_2_lora.ckpt"
+)
+
+_vggt_l19_4adap_lora_config = _Config(
+    backbone_arch='vggt',
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 15,
+        "adapter_depth": 4,
+        "lora": True,
+        "lora_rank": 8
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url=f"{VGGT_LORA_URL}/vggt_l15_4_lora.ckpt"
+)
+
+
 _mapanything_config = _Config(
     backbone_arch='map_anything',
     backbone_config={"return_token": True},
@@ -235,6 +275,31 @@ def vggt_l19_salad_deep_adapters(vpr_repo_path: str, **kwargs) -> torch.nn.Modul
     learned_state = torch.hub.load_state_dict_from_url(url, map_location='cpu')
     vggt_salad.load_state_dict(learned_state, strict=False)
     return vggt_salad
+
+
+def __vggt_salad_adapters(_config: _Config, vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    if vpr_repo_path not in sys.path:
+        sys.path.insert(0, vpr_repo_path)
+        sys.path.insert(0, os.path.join(vpr_repo_path, "submodules", "vggt"))
+    from model_flavors.vggt_salad import VggtSalad
+    from vpr.models.backbones.vggt import load_pretrained_vggt
+    backbone_arch = _config.backbone_arch
+    backbone_config = _config.backbone_config
+    salad_config = _config.salad_config
+    vggt = load_pretrained_vggt()
+    vggt_salad = VggtSalad(vggt, backbone_config, salad_config)
+    url = _config.url
+    learned_state = torch.hub.load_state_dict_from_url(url, map_location='cpu')
+    vggt_salad.load_state_dict(learned_state, strict=False)
+    return vggt_salad
+
+
+def vggt_sp_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    return __vggt_salad_adapters(_vggt_l19_2adap_lora_config, vpr_repo_path, **kwargs)
+
+
+def vggt_spp_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    return __vggt_salad_adapters(_vggt_l19_4adap_lora_config, vpr_repo_path, **kwargs)
 
 
 def mapanything_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
