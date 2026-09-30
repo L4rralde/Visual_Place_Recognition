@@ -375,7 +375,7 @@ _vggt_omega_l18_2_lora_config = _Config(
         "adapter_depth": 2,
         "lora": True,
         "lora_rank": 16,
-        "lora_alpah": 32
+        "lora_alpha": 32,
     },
     salad_config={
         "cluster_dim": 128,
