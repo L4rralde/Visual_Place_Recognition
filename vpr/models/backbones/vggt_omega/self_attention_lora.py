@@ -11,7 +11,7 @@ def inject_lora(
     linear: nn.Linear,
     r: int,
     alpha: Optional[int] = None,
-    dropout: float = 0.1
+    dropout: float = 0.0
 ) -> nn.Linear:
     # Freeze base module
     for p in linear.parameters():
@@ -105,7 +105,7 @@ class SelfAttentionLora(SelfAttention):
         device=None,
         lora_r: int=16,
         lora_alpha: int=32,
-        lora_dropout: float=0.1
+        lora_dropout: float=0.0
     ):
         super().__init__(
             dim,
