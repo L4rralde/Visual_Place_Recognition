@@ -1,5 +1,6 @@
 #define: &process_res 512 #This is the largest dimension.
-define: &process_res 368 #Must train with 368. Not achivable with mode balanced using only 16GB VRAM.
+#Let's use process resolution=256 to try to rteduce overfitting
+define: &process_res 256 #Must train with 368. Not achivable with mode balanced using only 16GB VRAM.
 
 backbone_arch: "vggt_omega"
 
@@ -13,9 +14,10 @@ backbone_config:
   probing_from_layer: 18
   vggt_omega_checkpoint: "vggt_omega_1b_512.pt"
   adapter_depth: 2
+  adapter_drop_path_rate: 0.2
   lora: true
-  lora_rank: 16
-  lora_alpha: 32
+  lora_rank: 8
+  lora_alpha: 16
   lora_dropout: 0.0
 
 agg_config:
