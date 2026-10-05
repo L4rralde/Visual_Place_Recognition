@@ -46,6 +46,7 @@ class Dinov3BlocksAdapter(nn.Module):
         ffn_layer_cls = ffn_layer_dict[ffn_layer]
         norm_layer_cls = norm_layer_dict[norm_layer]
 
+        print("Drop path rate:", drop_path_rate)
         new_block_list = [
             SelfAttentionBlock(
                 dim=embed_dim,
@@ -173,6 +174,8 @@ def vit_large_blocks(
     assert dino_vit.embed_dim == 1024
     assert dino_vit.num_heads == 16
 
+    drop_path_rate = kwargs.pop("adapter_drop_path_rate", 0)
+
     if kwargs.get("lora", False):
         block_type = Dinov3BlocksAdapterLora
         block_args = {
@@ -193,6 +196,7 @@ def vit_large_blocks(
         norm_layer="layernormbf16",
         layerscale_init=1e-05,
         mask_k_bias=True,
+        drop_path_rate=drop_path_rate,
         **block_args
     )
 
