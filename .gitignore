@@ -9,3 +9,4 @@ output
 .vscode
 *.venv
 *.csv
+.DS_Store
