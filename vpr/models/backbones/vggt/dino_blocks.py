@@ -1,5 +1,5 @@
 from functools import partial
-from typing import List
+from typing import List, Type
 
 import torch
 import torch.nn as nn
@@ -9,9 +9,10 @@ from vpr.models.backbones.vggt.vggt.layers import(
     Mlp,
     SwiGLUFFNFused,
     MemEffAttention,
-    NestedTensorBlock as Block
+    NestedTensorBlock as Block,
 )
-
+from vpr.models.backbones.vggt.self_attention_lora import SelfAttentionLora
+from vpr.models.backbones.vggt.vggt.layers.attention import MemEffAttention, Attention
 
 class DinoBlocksAdapter(nn.Module):
     def __init__(
@@ -32,6 +33,7 @@ class DinoBlocksAdapter(nn.Module):
         block_fn=Block,
         ffn_layer="mlp",
         qk_norm: bool=False,
+        attn_class: Type[Attention] = MemEffAttention,
         **kwargs
     ):
         super().__init__()
@@ -69,11 +71,19 @@ class DinoBlocksAdapter(nn.Module):
                 ffn_layer=ffn_layer,
                 init_values=init_values,
                 qk_norm=qk_norm,
+                attn_class=attn_class
             )
             for i in range(len(block_list))
         ]
         for new_blk, blk in zip(new_block_list, block_list):
-            new_blk.load_state_dict(blk.state_dict())
+            missing, unexpected = new_blk.load_state_dict(blk.state_dict())
+            missing = [
+                name for name in missing
+                if not "lora_" in name
+            ]
+            assert not missing, missing
+            assert not unexpected, unexpected
+
         self.blocks = nn.ModuleList(new_block_list)
         self._frozen: bool=True
 
@@ -113,11 +123,18 @@ class DinoBlocksLoraAdapter(DinoBlocksAdapter):
             block_fn=Block,
             ffn_layer="mlp", 
             qk_norm = False,
-            lora_rank: int = 8,
-            lora_alpha: int = 16,
-            lora_dropout: float = 0.1,
+            lora_rank: int = 16,
+            lora_alpha: int = 32,
+            lora_dropout: float = 0.0,
             **kwargs
         ):
+        attn_class = partial(
+            SelfAttentionLora,
+            lora_r=lora_rank,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout
+        )
+
         super().__init__(
             block_list,
             block_idcs,
@@ -135,23 +152,9 @@ class DinoBlocksLoraAdapter(DinoBlocksAdapter):
             block_fn,
             ffn_layer, 
             qk_norm,
+            attn_class
         )
-
-        self._lora_rank = lora_rank
-
-        lora_config = LoraConfig(
-            r=self._lora_rank,
-            lora_alpha=lora_alpha,
-            lora_dropout=lora_dropout,
-            target_modules=["qkv", "proj"],
-        )
-
-        self.blocks = nn.ModuleList([
-            get_peft_model(blk, lora_config) 
-            for blk in self.blocks
-        ])
-
-        self.freeze()
+        
 
     def freeze(self):
         """Freezes all parameters in the adapter."""
@@ -190,7 +193,7 @@ def vit_large_blocks(dino_vit, block_idcs, **kwargs):
         num_heads=16,
         mlp_ratio=4,
         init_values=init_values,
-        block_fn=partial(Block, attn_class=MemEffAttention),
+        block_fn=Block,
         **kwargs,
     )
     return model

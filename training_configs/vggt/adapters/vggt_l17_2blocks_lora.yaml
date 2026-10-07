@@ -12,7 +12,9 @@ backbone_config:
   probing_from_layer: 17
   adapter_depth: 2
   lora: true
-  lora_rank: 8
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 32
 
 
 agg_config:
