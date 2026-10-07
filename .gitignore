@@ -10,3 +10,6 @@ output
 *.venv
 *.csv
 .DS_Store
+venvs
+training_datasets
+*.pt
