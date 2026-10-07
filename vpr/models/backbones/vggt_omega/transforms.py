@@ -65,6 +65,7 @@ def get_transforms(input_config: dict) -> Tuple[Callable]:
         resize,
         T.RandAugment(num_ops=3, interpolation=T.InterpolationMode.BILINEAR),
         T.ToTensor(),
+        #T.RandomErasing(0.25, scale=(0.02, 0.15), value='random'),
     ])
     valid_transform = T.Compose([
         resize,
