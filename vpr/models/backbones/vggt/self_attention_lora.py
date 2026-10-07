@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from vggt.vggt.layers.attention import Attention, MemEffAttention
+from vpr.models.backbones.vggt.vggt.layers.attention import Attention, MemEffAttention
 
 
 class LoraLinear(nn.Module):
