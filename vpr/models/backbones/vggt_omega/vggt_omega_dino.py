@@ -293,7 +293,7 @@ class VggtOmegaBase(nn.Module):
             **heads_predictions
         }
 
-    def make_adapter(self, adapter_depth: int=0) -> nn.Module:
+    def make_adapter(self, adapter_depth: int=0, **kwargs) -> nn.Module:
         assert adapter_depth >= 0
 
         if adapter_depth == 0:
@@ -309,7 +309,11 @@ class VggtOmegaBase(nn.Module):
         ]
 
         #Here comes the magic
-        adapter = vit_large_blocks(self.dino, dino_blocks_idcs_for_adapter)
+        adapter = vit_large_blocks(
+            self.dino,
+            dino_blocks_idcs_for_adapter,
+            **kwargs
+        )
 
         return adapter
 
@@ -317,7 +321,10 @@ class VggtOmegaBackbone(VggtOmegaBase):
     def __init__(self, vggt_omega: VGGTOmega, **kwargs):
         super().__init__(vggt_omega, **kwargs)
         self._vggt_omega = vggt_omega
-        self.adapter = self.make_adapter(self.adapter_depth)
+        if 'adapter_depth' in kwargs:
+            adapter_depth = kwargs.pop('adapter_depth')
+            assert adapter_depth == self.adapter_depth
+        self.adapter = self.make_adapter(self.adapter_depth, **kwargs)
         self._clip_probing_from_layer()
 
     @staticmethod
@@ -330,7 +337,10 @@ class VggtOmegaDino(VggtOmegaBase):
     def __init__(self, vggt_omega: VGGTOmega, norm_layer: bool=True, **kwargs):
         super().__init__(vggt_omega, norm_layer=norm_layer, **kwargs)
         self._dino = vggt_omega.aggregator.patch_embed
-        self.adapter = self.make_adapter(self.adapter_depth)
+        if 'adapter_depth' in kwargs:
+            adapter_depth = kwargs.pop('adapter_depth')
+            assert adapter_depth == self.adapter_depth
+        self.adapter = self.make_adapter(self.adapter_depth, **kwargs)
         self._clip_probing_from_layer()
 
     @staticmethod
