@@ -76,11 +76,35 @@ class DinoBlocksAdapter(nn.Module):
             for i in range(len(block_list))
         ]
         for new_blk, blk in zip(new_block_list, block_list):
-            missing, unexpected = new_blk.load_state_dict(blk.state_dict())
+            model_keys = set(new_blk.state_dict().keys())
+            state_dict = blk.state_dict()
+            ckpt_keys = set(state_dict.keys())
+            missing = model_keys - ckpt_keys
+            unexpected = ckpt_keys - model_keys
+            if any("lora_" in k for k in missing):
+                new_state_dict = {
+                    k: v
+                    for k, v in state_dict.items()
+                    if k not in unexpected
+                }
+                for k in unexpected:
+                    new_k = k.replace(
+                        'attn.qkv', 'attn.qkv.base'
+                    ).replace(
+                        'attn.proj',
+                        'attn.proj.base'
+                    )
+                    new_state_dict[new_k] = state_dict[k]
+            else:
+                new_state_dict = state_dict
+
+            missing, unexpected = new_blk.load_state_dict(new_state_dict, strict=False)
+
             missing = [
-                name for name in missing
-                if not "lora_" in name
+                k for k in missing
+                if 'lora_' not in k
             ]
+        
             assert not missing, missing
             assert not unexpected, unexpected
 
