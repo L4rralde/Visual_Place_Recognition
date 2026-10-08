@@ -163,7 +163,7 @@ _vggt_l19_4adap_lora_config = _Config(
 
 VGGT_CUSTOM_LORA_URL = "https://github.com/L4rralde/Visual_Place_Recognition/releases/download/custom_lora/"
 
-_vggt_l19_2adap_lora_config = _Config(
+_vggt_l19_2adap_custom_lora_config = _Config(
     backbone_arch='vggt',
     backbone_config={
         "return_token": True,
@@ -173,7 +173,7 @@ _vggt_l19_2adap_lora_config = _Config(
         "lora": True,
         "lora_rank": 16,
         "lora_alpha": 32,
-        "lora_dropout": 64
+        "lora_dropout": 0.0
     },
     salad_config={
         "cluster_dim": 128,
@@ -328,7 +328,7 @@ def vggt_spp_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
 
 
 def vggt_sp_custom_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
-    return __vggt_salad_adapters(_vggt_l19_2adap_lora_config, vpr_repo_path, **kwargs)
+    return __vggt_salad_adapters(_vggt_l19_2adap_custom_lora_config, vpr_repo_path, **kwargs)
 
 
 def mapanything_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
