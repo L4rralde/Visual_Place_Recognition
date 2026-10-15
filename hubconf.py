@@ -183,6 +183,26 @@ _vggt_l19_2adap_custom_lora_config = _Config(
     url=f"{VGGT_CUSTOM_LORA_URL}/vggt_sp_lora.ckpt"
 )
 
+_vggt_l19_4adap_custom_lora_config = _Config(
+    backbone_arch='vggt',
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 15,
+        "adapter_depth": 4,
+        "lora": True,
+        "lora_rank": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0.0
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url=f"{VGGT_CUSTOM_LORA_URL}/vggt_spp_lora.ckpt"
+)
+
 
 _mapanything_config = _Config(
     backbone_arch='map_anything',
@@ -329,6 +349,10 @@ def vggt_spp_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
 
 def vggt_sp_custom_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
     return __vggt_salad_adapters(_vggt_l19_2adap_custom_lora_config, vpr_repo_path, **kwargs)
+
+
+def vggt_spp_custom_lora(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
+    return __vggt_salad_adapters(_vggt_l19_4adap_custom_lora_config, vpr_repo_path, **kwargs)
 
 
 def mapanything_salad(vpr_repo_path: str, **kwargs) -> torch.nn.Module:
