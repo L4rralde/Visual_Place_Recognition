@@ -3,7 +3,7 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 
-def plot_model_comparison(models_data, save_path=None, min_area=0, max_area=2500, ylim=None):
+def plot_model_comparison(models_data, save_path=None, min_area=0, max_area=500, ylim=None):
     """
     Plots a bubble chart comparing AI models with a normalized bubble size scale.
     
@@ -32,7 +32,7 @@ def plot_model_comparison(models_data, save_path=None, min_area=0, max_area=2500
     df['norm_size']  *= 2
     
     # 2. Set up the figure
-    fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
+    fig, ax = plt.subplots(figsize=(10, 10), dpi=300)
     
     # 3. Create the main bubble chart
     scatter = ax.scatter(
@@ -110,7 +110,7 @@ def plot_model_comparison(models_data, save_path=None, min_area=0, max_area=2500
     
     # 5. Customize axes, titles, and limits
     ax.set_xlabel("Extra inference Time (ms per batch of 16 images)", fontweight='bold', labelpad=10)
-    ax.set_ylabel("Pitts250k-test R1", fontweight='bold', labelpad=10)
+    ax.set_ylabel("VPR Performance R@1", fontweight='bold', labelpad=10)
     ax.set_title("Time vs. Performance (Size = # Extra parameters)", fontweight='bold', pad=15)
     
     # Apply Y-Axis Limits
@@ -134,56 +134,63 @@ def plot_model_comparison(models_data, save_path=None, min_area=0, max_area=2500
 models = [
     {
         "label": "MegaLoc",
-        "performance": 96.4,
+        "performance": 89.2,
         "inference_time": 65,
         "size": 228.6,
-        "color": "#4C72B0",
+        "color": "#B9CBE9",
     },
     {
         "label": "DINOv2+SALAD",
-        "performance": 95.1,
+        "performance": 96.1,
         "inference_time": 60,
         "size": 88,
-        "color": "#B04C9A",
+        "color": "#B9CBE9",
     },
     {
-        "label": "VGGT-S",
-        "performance": 95.2,
-        "inference_time": 10.5,
+        "label": "BoQ",
+        "performance": 88.2,
+        "inference_time": 63,
+        "size": 95.2,
+        "color": "#B9CBE9",
+    },
+    {
+        "label": "MixVPR",
+        "performance": 80.8,
+        "inference_time": 20,
+        "size": 10.9,
+        "color": "#B9CBE9",
+    },
+    {
+        "label": "EDTformer",
+        "performance": 88.8,
+        "inference_time": 68,
+        "size": 97,
+        "color": "#B9CBE9",
+    },
+    {
+        "label": "ImAge",
+        "performance": 86.4,
+        "inference_time": 58,
+        "size": 86.6,
+        "color": "#B9CBE9",
+    },
+    {
+        "label": "VeGGieT SALAD+",
+        "performance": 88.4,
+        "inference_time": 36,
+        "size": 10.2,
+        "color": "#6FFCDD",
+    },
+    {
+        "label": "VeGGieT SALAD-$\Omega$",
+        "performance": 87.0,
+        "inference_time": 10,
         "size": 1.8,
-        "color": "#4CB0A8",
+        "color": "#6FFCDD",
     },
-    {
-        "label": "VGGT-S+",
-        "performance": 95.7,
-        "inference_time": 36.2,
-        "size": 27,
-        "color": "#4CB0A8",
-    },
-    {
-        "label": "VGGT-S++",
-        "performance": 96.2,
-        "inference_time": 67.7,
-        "size": 52.2,
-        "color": "#4CB0A8",
-    },
-    {
-        "label": "VGGT-S+(LoRA)",
-        "performance": 95.6,
-        "inference_time": 42,
-        "size":  1.90,
-        "color": "#3c8c70"
-    },
-    {
-        "label": "VGGT-S++(LoRA)",
-        "performance": 95.8,
-        "inference_time": 78.8,
-        "size":  2.0,
-        "color": "#3c8c70"
-    }
 ]
 
 
 if __name__ == '__main__':
     save_path = "model_comparison.pdf"
-    plot_model_comparison(models, save_path, ylim=(95, 96.6))
+    plot_model_comparison(models, save_path, ylim=(80, 92.0))
