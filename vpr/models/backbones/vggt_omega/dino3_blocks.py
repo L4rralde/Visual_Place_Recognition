@@ -3,6 +3,8 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+from peft import LoraConfig, get_peft_model #LoRA finetuning. From HuggingFace
+
 
 from .vggt_omega.models.layers import (
     RopePositionEmbedding,
@@ -93,6 +95,11 @@ class Dinov3BlocksAdapter(nn.Module):
         
         return x
 
+    def freeze(self):
+        """Freezes all parameters in the adapter."""
+        for param in self.parameters():
+            param.requires_grad = False
+
     def unfreeze(self) -> None:
         if not self._frozen:
             return
@@ -164,6 +171,77 @@ class Dinov3BlocksAdapterLora(Dinov3BlocksAdapter):
         self._frozen = False
 
 
+class Dinov3BlocksAdapterPeftLora(Dinov3BlocksAdapter):
+    def __init__(
+        self,
+        block_list,
+        block_idcs,
+        embed_dim,
+        num_heads,
+        rope_embed,
+        device = None,
+        norm_layer = "layernorm",
+        ffn_ratio = 4,
+        qkv_bias = True,
+        ffn_bias = True,
+        proj_bias = True,
+        ffn_layer = "mlp",
+        drop_path_rate = 0,
+        layerscale_init = None,
+        mask_k_bias = False,
+        attn_class: Type[SelfAttention]=SelfAttention,
+        lora_rank: int=8,
+        lora_alpha: int=16,
+        lora_dropout: float=0.1,
+        **kwargs
+    ):
+        super().__init__(
+            block_list,
+            block_idcs,
+            embed_dim,
+            num_heads,
+            rope_embed,
+            device,
+            norm_layer,
+            ffn_ratio,
+            qkv_bias,
+            ffn_bias,
+            proj_bias,
+            ffn_layer,
+            drop_path_rate,
+            layerscale_init,
+            mask_k_bias,
+            attn_class
+        )
+
+        self._lora_rank = lora_rank
+
+        lora_config = LoraConfig(
+            r=self._lora_rank,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            target_modules=["qkv", "proj"],
+        )
+
+        self.blocks = nn.ModuleList([
+            get_peft_model(blk, lora_config) 
+            for blk in self.blocks
+        ])
+
+        self.freeze()
+
+    def unfreeze(self) -> None:
+        if not self._frozen:
+            return
+
+        print(f"Unfreezing {self.__class__.__name__} adapter")
+        for name, param in self.blocks.named_parameters():
+            if "lora_" in name:
+                param.requires_grad = True
+        self.blocks.train()
+        self._frozen = False
+
+
 def vit_large_blocks(
     dino_vit: DinoVisionTransformer,
     block_idcs: List[int],
@@ -177,7 +255,7 @@ def vit_large_blocks(
     drop_path_rate = kwargs.pop("adapter_drop_path_rate", 0)
 
     if kwargs.get("lora", False):
-        block_type = Dinov3BlocksAdapterLora
+        block_type = Dinov3BlocksAdapterPeftLora
         block_args = {
             k: v for k, v in kwargs.items()
             if 'lora' in k
