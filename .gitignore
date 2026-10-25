@@ -9,3 +9,7 @@ output
 .vscode
 *.venv
 *.csv
+*.ckpt
+*.pt
+*.pkl
+*foo*
