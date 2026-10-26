@@ -386,6 +386,8 @@ _vggt_omega_l18_2_lora_config = _Config(
 )
 
 
+
+
 def vggto_sp_pre(
     vpr_repo_path: str,
     vggt_omega_ckpt: str,
@@ -418,5 +420,60 @@ def vggto_sp_pre(
         if 'lora' in p or p.startswith('aggregator'):
             raise RuntimeError(f"Missing trainable parameter: {p}")
 
+
+    return vggto_salad
+
+
+_vggt_omega_l18_2_lora_config_rev = _Config(
+    backbone_arch="VGGT_OMEGA",
+    backbone_config={
+        "return_token": True,
+        "norm_layer": False,
+        "probing_from_layer": 18,
+        "adapter_depth": 2,
+        "lora": True,
+        "lora_rank": 8,
+        "lora_alpha": 16,
+    },
+    salad_config={
+        "cluster_dim": 128,
+        "num_clusters": 64,
+        "token_dim": 256
+    },
+    url='https://github.com/L4rralde/Visual_Place_Recognition/releases/download/vggt_omega_lora_pre/vggto_182_lora.ckpt'
+)
+
+
+def vggto_sp_rev(
+    vpr_repo_path: str,
+    vggt_omega_ckpt: str,
+    **kwargs
+) -> torch.nn.Module:
+    if vpr_repo_path not in sys.path:
+        sys.path.insert(0, vpr_repo_path)
+        sys.path.insert(0, os.path.join(vpr_repo_path, "submodules", "vggt-omega"))
+
+    from model_flavors.vggt_omega_salad import VggtOmegaSalad
+    from vpr.models.backbones.vggt_omega import load_pretrained_vggt_omega
+
+    backbone_arch = _vggt_omega_l18_2_lora_config_rev.backbone_arch
+    backbone_config = _vggt_omega_l18_2_lora_config_rev.backbone_config
+    salad_config = _vggt_omega_l18_2_lora_config_rev.salad_config
+
+    vggt_omega = load_pretrained_vggt_omega(vggt_omega_ckpt)
+    vggto_salad = VggtOmegaSalad(
+        vggt_omega,
+        backbone_config,
+        salad_config
+    )
+
+    url = _vggt_omega_l18_2_lora_config_rev.url
+    salad_state_dict = torch.hub.load_state_dict_from_url(url, map_location='cpu')
+    missing, unexpected = vggto_salad.load_state_dict(salad_state_dict, strict=False)
+    if unexpected:
+        raise RuntimeError(f"Loaded unexpected parameters: {unexpected}")
+    for p in missing:
+        if 'lora' in p or p.startswith('aggregator'):
+            raise RuntimeError(f"Missing trainable parameter: {p}")
 
     return vggto_salad
