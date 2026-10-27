@@ -475,5 +475,7 @@ def vggto_sp_rev(
     for p in missing:
         if 'lora' in p or p.startswith('aggregator'):
             raise RuntimeError(f"Missing trainable parameter: {p}")
+    
+    print("Returning VGGTO_SP_REV")
 
     return vggto_salad
