@@ -31,7 +31,7 @@ class Transforms:
 def parse_args() -> dict:
     parser = argparse.ArgumentParser()
     parser.add_argument('log_path', type=str)
-    parser.add_argument('--img-size', type=int, nargs='+')
+    parser.add_argument('--img-size', type=int, nargs='+', required=True)
     parser.add_argument('--batch-size', type=int, default=32)
 
     #parser.add_argument('--yaml', type=str, default='') #FUTURE
@@ -60,6 +60,7 @@ def main() -> None:
     model_eval(
         model,
         input_transform,
+        val_datasets=['MSLS', 'SPED', 'pitts30k_test'],
         verbose=True,
         batch_size=args.batch_size
     )
