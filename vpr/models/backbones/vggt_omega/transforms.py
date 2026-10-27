@@ -53,6 +53,9 @@ class VggtOmegaTransform:
 def get_transforms(input_config: dict) -> Tuple[Callable]:
     img_size = input_config.get('img_size', 512)
     mode = input_config.get('mode', 'max_size')
+    print("Calling VGGTO transform with")
+    print("img_size", img_size, type(img_size))
+    print("mode", mode, type(mode))
     if isinstance(img_size, int):
         resize = VggtOmegaTransform(img_size, mode)
     elif isinstance(img_size, list) and len(img_size) == 2:
